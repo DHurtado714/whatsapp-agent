@@ -274,13 +274,18 @@ server.registerTool(
   }
 )
 
-async function main() {
+export async function main(): Promise<void> {
   const transport = new StdioServerTransport()
   await server.connect(transport)
   process.stderr.write(`whatsapp-agent mcp ready (bridge: ${BRIDGE_URL})\n`)
 }
 
-main().catch((err) => {
-  process.stderr.write(`whatsapp-agent mcp failed: ${err instanceof Error ? err.stack : String(err)}\n`)
-  process.exit(1)
-})
+// Still runnable directly (`bun run src/mcp/index.ts`) for local dev and as
+// the e2e suite's fallback when WA_TEST_BIN isn't set. When imported by the
+// CLI router (src/cli/index.ts) this is false and the router calls main().
+if (import.meta.main) {
+  main().catch((err) => {
+    process.stderr.write(`whatsapp-agent mcp failed: ${err instanceof Error ? err.stack : String(err)}\n`)
+    process.exit(1)
+  })
+}

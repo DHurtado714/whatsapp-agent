@@ -34,7 +34,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node -e \"import('node:fs').then(fs=>{for(const f of ['dist/cli/index.js'])fs.chmodSync(f,0o755)})\"",
+    "build": "tsc -p tsconfig.build.json && node -e \"import('node:fs').then(fs=>{for(const f of ['dist/cli/index.js'])fs.chmodSync(f,0o755)})\"",
     "cli": "bun run src/cli/index.ts",
     "bridge": "bun run src/cli/index.ts bridge",
     "mcp": "bun run src/cli/index.ts mcp",

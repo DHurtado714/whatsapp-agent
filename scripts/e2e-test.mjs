@@ -202,22 +202,37 @@ check('GET /messages without chat_jid returns 400', () => assert.equal(badRes.st
 const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
 const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js')
 
+// WA_TEST_BIN points at a compiled `bun build --compile` artifact — CI uses
+// this to run the exact same suite against the distributed binary, not just
+// against source, since --compile has its own failure modes (argv shape,
+// bundling, codesigning...).
 const testBin = process.env.WA_TEST_BIN
-const transport = new StdioClientTransport(
-  testBin
-    ? {
-        command: testBin,
-        args: ['mcp'],
-        env: { ...process.env, WA_AGENT_DIR: TMP, WA_BRIDGE_PORT: String(port) },
-        stderr: 'ignore'
-      }
-    : {
-        command: process.execPath,
-        args: ['run', path.join(ROOT, 'src/mcp/index.ts')],
-        env: { ...process.env, WA_AGENT_DIR: TMP, WA_BRIDGE_PORT: String(port) },
-        stderr: 'ignore'
-      }
-)
+const mcpCommand = testBin
+  ? { command: testBin, args: ['mcp'] }
+  : { command: process.execPath, args: ['run', path.join(ROOT, 'src/cli/index.ts'), 'mcp'] }
+const mcpEnv = { ...process.env, WA_AGENT_DIR: TMP, WA_BRIDGE_PORT: String(port) }
+
+// stdio JSON-RPC breaks on a single stray byte on stdout — verify the raw
+// transport is clean before layering the SDK's Client on top, so a bug here
+// doesn't just look like an inscrutable protocol error later.
+{
+  const raw = Bun.spawn([mcpCommand.command, ...mcpCommand.args], {
+    env: mcpEnv,
+    stdin: 'pipe',
+    stdout: 'pipe',
+    stderr: 'ignore'
+  })
+  raw.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })}\n`)
+  raw.stdin.end()
+  const chunk = await raw.stdout.getReader().read()
+  const firstByte = chunk.value ? String.fromCharCode(chunk.value[0]) : null
+  check('mcp subcommand emits clean JSON-RPC on stdout (first byte is "{")', () => {
+    assert.equal(firstByte, '{')
+  })
+  raw.kill()
+}
+
+const transport = new StdioClientTransport({ ...mcpCommand, env: mcpEnv, stderr: 'ignore' })
 const client = new Client({ name: 'test', version: '1.0.0' })
 await client.connect(transport)
 

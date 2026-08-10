@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { DATA_DIR } from '../shared/config.js'
 import { logger, start, state, stop } from './socket.js'
 import { startServer } from './server.js'
@@ -16,11 +15,11 @@ function parseArgs(argv: string[]) {
 }
 
 const HELP = `
-wa-bridge - daemon that keeps your WhatsApp session alive and saves everything to SQLite
+whatsapp-agent bridge - daemon that keeps your WhatsApp session alive and saves everything to SQLite
 
-  wa-bridge                    start the daemon (QR in the terminal if there's no session)
-  wa-bridge --pair 15551234567 link with an 8-digit code instead of a QR
-  wa-bridge --login            just link and sync history, then keep running
+  whatsapp-agent bridge                     start the daemon (QR in the terminal if there's no session)
+  whatsapp-agent bridge --pair 15551234567  link with an 8-digit code instead of a QR
+  whatsapp-agent bridge --login             just link and sync history, then keep running
 
 Environment variables:
   WA_AGENT_DIR         data directory (default: ~/.whatsapp-agent)
@@ -31,8 +30,9 @@ Environment variables:
   WA_LOG_LEVEL         debug | info | warn | error (default: info)
 `
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2))
+/** Entry point for the `bridge` CLI subcommand. argv excludes the "bridge" word itself. */
+export async function runBridge(argv: string[]): Promise<void> {
+  const args = parseArgs(argv)
   if (args.help) {
     process.stdout.write(HELP)
     return
@@ -65,7 +65,11 @@ async function main() {
   process.on('SIGTERM', shutdown)
 }
 
-main().catch((err) => {
-  logger.error({ err }, 'wa-bridge failed to start')
-  process.exit(1)
-})
+// Still runnable directly (`bun run src/bridge/index.ts --login`) for local
+// dev, without going through the whatsapp-agent CLI router.
+if (import.meta.main) {
+  runBridge(process.argv.slice(2)).catch((err) => {
+    logger.error({ err }, 'wa-bridge failed to start')
+    process.exit(1)
+  })
+}
