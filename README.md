@@ -1,170 +1,249 @@
 # whatsapp-agent
 
-Bridge de WhatsApp (Baileys) + servidor MCP de **solo lectura** para que agentes puedan leer tus chats.
-
-Fase 1: leer. No envía mensajes, no modifica nada, y la API HTTP interna rechaza cualquier método que no sea `GET`.
-
----
-
-## Arquitectura
+Read-only WhatsApp bridge + MCP server, so your AI assistant can read your chats.
 
 ```
-  tu teléfono ──WhatsApp Web protocol──▶  wa-bridge  ──▶  ~/.whatsapp-agent/store.db
-                                          (daemon)              (SQLite)
-                                              │
-                                              │ HTTP local, solo lectura
-                                              │ 127.0.0.1:8788
-                                              ▼
-   Claude / cualquier agente  ◀──stdio MCP──  wa-mcp
+You:    What did I talk about with Alice last week?
+
+Claude: You and Alice discussed the Q3 budget review on Tuesday — she asked
+        you to send the updated spreadsheet by Friday. On Thursday you
+        confirmed the offsite date (Oct 14th) and she shared a restaurant
+        recommendation for the team dinner.
 ```
 
-Dos procesos, a propósito:
+> [!WARNING]
+> **whatsapp-agent is not affiliated with, endorsed by, or sponsored by WhatsApp or Meta.**
+> It talks to WhatsApp through [Baileys](https://github.com/WhiskeySockets/Baileys), an
+> unofficial, reverse-engineered implementation of the WhatsApp Web protocol. Using an
+> unofficial client can violate WhatsApp's Terms of Service and **may get your account
+> banned or restricted**. This tool is read-only, but read-only is not a guarantee of
+> safety. Use it only on a WhatsApp account you own. Your messages are stored
+> **unencrypted** in a local SQLite file on your machine. Provided "as is", without
+> warranty of any kind. See [Things worth knowing](#things-worth-knowing) below.
 
-**`wa-bridge`** es un daemon que mantiene una sola sesión de WhatsApp viva y va escribiendo todo lo que llega (chats, contactos, mensajes) en SQLite. Se queda corriendo.
-
-**`wa-mcp`** es el servidor MCP. No habla con WhatsApp: solo consulta el bridge por HTTP. Es sin estado, arranca en milisegundos, y podés tener varios agentes usándolo a la vez sin pelearse por la sesión.
-
-Si en cambio el MCP levantara Baileys directamente, cada vez que un agente arrancara tendrías una reconexión y una re-sincronización de historial — lento, ruidoso, y WhatsApp lo ve como un dispositivo reconectándose sin parar.
-
----
-
-## Instalación
-
-Necesitás Node.js 20 o superior (`node --version`).
+## Install
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/danielhurtado714/whatsapp-agent/main/install.sh | bash
+```
+
+This downloads the right binary for your machine (macOS or Linux, Intel or ARM), verifies
+its checksum, and installs it — no Node, no Bun, no build step required.
+
+<details>
+<summary>Manual download</summary>
+
+Grab the archive for your platform from the [latest release](https://github.com/danielhurtado714/whatsapp-agent/releases/latest), verify it against `SHA256SUMS`, then:
+
+```bash
+tar xzf whatsapp-agent-<platform>.tar.gz
+sudo install -m 755 whatsapp-agent-<platform> /usr/local/bin/whatsapp-agent
+```
+
+On macOS, if you see "Apple could not verify this app": that's Gatekeeper's quarantine
+flag, which browsers add to downloaded files (`curl` doesn't, which is why the one-liner
+above doesn't hit this). Clear it with:
+
+```bash
+xattr -d com.apple.quarantine /usr/local/bin/whatsapp-agent
+```
+
+</details>
+
+<details>
+<summary>Build from source</summary>
+
+Requires [Bun](https://bun.sh) ≥ 1.3.
+
+```bash
+git clone https://github.com/danielhurtado714/whatsapp-agent.git
 cd whatsapp-agent
 bun install
 bun run build
+bun dist/cli/index.js setup
 ```
 
-`better-sqlite3` trae binarios precompilados para macOS arm64, así que no debería compilar nada. Si por algún motivo falla, instalá las Command Line Tools de Xcode (`xcode-select --install`) y repetí `bun install`.
+</details>
 
-## Vincular tu WhatsApp
+Binaries bundle the Bun runtime, so they're not small: ~72–75MB on macOS, ~105–116MB on
+Linux. That's the tradeoff for "no separate runtime to install."
 
-Primera vez, con QR:
+## Set up
 
 ```bash
-node dist/bridge/index.js
+whatsapp-agent setup
 ```
 
-Aparece un QR en la terminal. En el teléfono: **WhatsApp → Ajustes → Dispositivos vinculados → Vincular dispositivo**.
+This walks you through everything:
 
-Si preferís un código de 8 dígitos en vez del QR (útil por SSH o si la terminal renderiza mal el QR):
+```
+== Checking your system ==
+✓ Platform: darwin/arm64
+✓ Database ready at ~/.whatsapp-agent
+
+== Linking WhatsApp ==
+Scan this QR from your phone: WhatsApp > Settings > Linked devices > Link a device
+
+  [QR code]
+
+✓ Linked successfully.
+
+== Syncing message history ==
+  14,302 messages received (62%)
+✓ History sync complete (23,108 messages).
+
+== Registering with your AI tools ==
+Register with Claude Code (~/.claude.json)? [Y/n] y
+  ✓ Claude Code: registered whatsapp
+Register with Claude Desktop (...)? [Y/n] y
+  ✓ Claude Desktop: registered whatsapp
+
+== Background service ==
+Install whatsapp-agent as a background service (launchd)? [Y/n] y
+✓ Installed (launchd): ~/Library/LaunchAgents/io.github.whatsapp-agent.bridge.plist
+
+== Verifying ==
+✓ MCP server responds correctly (4 tools, connection=open).
+
+== Done ==
+Try asking your AI assistant something like: "What did I talk about with X last week?"
+```
+
+Prefer a pairing code over a QR (useful over SSH)? `whatsapp-agent setup --pair 15551234567`.
+
+Setup is safe to re-run any time — it detects what's already done (linked, registered,
+installed) and skips it instead of redoing it.
+
+## What your agent can do
+
+| Tool | What it's for |
+|---|---|
+| `whatsapp_status` | Is the bridge connected, which account, how much is stored, sync progress. |
+| `list_chats` | Recent conversations, pinned first. Filter by type (dm/group), unread, archived. |
+| `search_chats` | Find a chat by contact name, group name, or phone number. |
+| `get_messages` | Read a conversation's history. Accepts a JID, a name, or a number — no need to look up an ID first. Supports date ranges (`since`/`until`, ISO or relative like `7d`). |
+
+Example prompts: *"What did Bob say about the trip?"*, *"Summarize the #launch group from this week"*, *"Find the message where someone sent me an address."*
+
+It's read-only by design — it cannot send messages, mark things as read, or change
+anything on your account.
+
+## How it works
+
+```
+  your phone ──WhatsApp Web protocol──▶  whatsapp-agent bridge  ──▶  ~/.whatsapp-agent/store.db
+                                              (daemon)                    (SQLite)
+                                                  │
+                                                  │ local HTTP, read-only
+                                                  │ 127.0.0.1:8788
+                                                  ▼
+     Claude / any MCP-capable agent  ◀──stdio MCP──  whatsapp-agent mcp
+```
+
+Two processes, on purpose:
+
+**`whatsapp-agent bridge`** is a daemon that keeps a single WhatsApp session alive and
+writes everything that arrives (chats, contacts, messages) into SQLite. It stays running.
+
+**`whatsapp-agent mcp`** is the MCP server your AI client talks to. It doesn't touch
+WhatsApp directly — it only queries the bridge over HTTP. It's stateless, starts in
+milliseconds, and several agents can use it at once without fighting over the session.
+
+If the MCP server ran Baileys directly instead, every agent startup would mean a
+reconnect and a history re-sync — slow, noisy, and WhatsApp sees it as a device that
+keeps reconnecting for no reason.
+
+## Your data
+
+Everything lives in `~/.whatsapp-agent/` (override with `WA_AGENT_DIR`):
+
+- `auth/` — your WhatsApp session credentials. Full access to your account.
+- `store.db` — your chats and messages, in plaintext SQLite.
+
+Nothing leaves your machine. The bridge only listens on `127.0.0.1`.
+
+To unlink and delete everything: `whatsapp-agent logout --purge`.
+
+## Run it in the background
+
+`whatsapp-agent setup` offers to install this for you. To do it later, or manage it
+directly:
 
 ```bash
-node dist/bridge/index.js --pair 573001234567
+whatsapp-agent service install     # generates and starts a launchd/systemd unit
+whatsapp-agent service status
+whatsapp-agent service logs -f
+whatsapp-agent service uninstall   # stops it; does NOT delete your data
 ```
 
-Y en el teléfono: **Dispositivos vinculados → Vincular dispositivo → Vincular con número de teléfono**.
-
-Después de vincular, **dejalo corriendo unos minutos**. WhatsApp manda el historial en lotes y el bridge los va guardando. Vas a ver líneas tipo `lote de historial procesado` y al final `sincronizacion de historial completa`. Cuánto historial llega lo decide WhatsApp, no nosotros: típicamente los últimos meses de cada chat, no todo desde el inicio de los tiempos.
-
-Las credenciales quedan en `~/.whatsapp-agent/auth/`. En los arranques siguientes no vuelve a pedir QR.
-
-## Conectar el MCP
-
-Con el bridge corriendo, agregá esto a tu cliente MCP.
-
-**Claude Code** (`~/.claude.json`, o `.mcp.json` en el proyecto):
-
-```json
-{
-  "mcpServers": {
-    "whatsapp": {
-      "command": "node",
-      "args": ["/ruta/absoluta/a/whatsapp-agent/dist/mcp/index.js"]
-    }
-  }
-}
-```
-
-O más corto, desde la carpeta del proyecto:
+**Linux only:** a systemd `--user` service stops when you log out unless linger is
+enabled. `setup`/`service install` try to enable it automatically; if that fails
+(common over plain SSH), run:
 
 ```bash
-claude mcp add whatsapp -- node "$PWD/dist/mcp/index.js"
+sudo loginctl enable-linger $USER
 ```
 
-**Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`): mismo bloque `mcpServers`.
+## Configuration
 
-Verificá con `whatsapp_status` — te dice si el bridge está conectado y cuántos mensajes hay guardados.
+Everything's an environment variable, all optional:
 
-## Dashboard
-
-Con el bridge corriendo, abrí **http://127.0.0.1:8788/** en el navegador. Es solo salud del proceso (no muestra chats ni contenido de mensajes): estado de conexión, cuenta vinculada, hace cuánto está corriendo el proceso y hace cuánto está conectado a WhatsApp, progreso del sync de historial, y los contadores de chats/mensajes/contactos guardados. Se refresca solo cada 4s. Sirve para confirmar de un vistazo que está vivo y sincronizando sin tener que leer logs.
-
-No pide token aunque hayas configurado `WA_BRIDGE_TOKEN` (la página en sí no expone datos), pero si lo configuraste el panel no va a poder refrescar `/status` — es solo para el caso normal de uso local sin token.
-
-## Herramientas expuestas
-
-| Tool              | Para qué                                                                                                                                      |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `whatsapp_status` | Estado de conexión, cuenta vinculada, cuántos chats/mensajes hay guardados, progreso del sync.                                                |
-| `list_chats`      | Chats por actividad reciente. Filtros: `type` (dm/group), `unread_only`, `include_archived`, `limit`, `offset`.                               |
-| `search_chats`    | Busca por nombre de contacto, nombre de grupo o número. Coincidencia parcial.                                                                 |
-| `get_messages`    | Historial de una conversación. `chat` acepta JID, nombre o número. `since`/`until` aceptan ISO (`2026-08-01`) o relativo (`7d`, `12h`, `2w`). |
-
-`get_messages` resuelve el chat por vos: no hace falta que el agente busque el JID primero. Si el nombre es ambiguo devuelve las opciones para que elija.
-
-## Dejarlo corriendo siempre (macOS)
-
-`launchd/local.whatsapp-bridge.plist` es una plantilla (label `local.whatsapp-bridge`, sin nada atado a ninguna empresa — es una herramienta personal). Editá las rutas (usuario, ruta del proyecto, y el binario de `node` — si usás `nvm` no es `/opt/homebrew/bin/node` sino algo como `~/.nvm/versions/node/vXX.X.X/bin/node`, confirmá con `which node`), y después:
-
-```bash
-cp launchd/local.whatsapp-bridge.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/local.whatsapp-bridge.plist
-```
-
-Con `RunAtLoad` + `KeepAlive` arranca solo al iniciar sesión y se reinicia si el proceso muere. Logs en `~/.whatsapp-agent/bridge.log`.
-
-Para pararlo: `launchctl unload ~/Library/LaunchAgents/local.whatsapp-bridge.plist`.
-
-Para aplicar cambios de código: `launchctl unload ...` → `bun run build` → `launchctl load ...`.
-
-Chequeo rápido de que está vivo: `curl -s http://127.0.0.1:8788/status` (o `launchctl list | grep whatsapp-bridge`).
-
-Una vez corriendo como daemon, ya no hace falta dejar ninguna terminal abierta — ni Claude Code ni Claude Desktop dependen de eso.
-
-## Configuración
-
-Todo por variables de entorno, todas opcionales.
-
-| Variable               | Default             | Qué hace                                                                                                      |
-| ---------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `WA_AGENT_DIR`         | `~/.whatsapp-agent` | Dónde viven credenciales y base de datos.                                                                     |
-| `WA_BRIDGE_PORT`       | `8788`              | Puerto de la API local.                                                                                       |
-| `WA_BRIDGE_TOKEN`      | vacío               | Si lo definís, la API exige `Authorization: Bearer`. Definilo en ambos procesos.                              |
-| `WA_SYNC_FULL_HISTORY` | `true`              | `false` para pedir menos historial y sincronizar más rápido.                                                  |
-| `WA_MARK_ONLINE`       | `false`             | `true` te marca "en línea" al conectar (y tu teléfono deja de mandarte notificaciones push). Dejalo en false. |
-| `WA_LOG_LEVEL`         | `info`              | `debug` cuando algo no cuadra.                                                                                |
-
-## Pruebas
-
-```bash
-node scripts/e2e-test.mjs
-```
-
-43 pruebas: extracción de texto de mensajes, capa SQLite, API HTTP, y los 4 tools MCP ejercitados con un cliente MCP real por stdio. No toca WhatsApp.
-
-## Cosas que conviene saber
-
-**Baileys no es oficial.** Reimplementa el protocolo de WhatsApp Web. WhatsApp puede suspender el número. El riesgo real es bajo mientras solo leas y te comportes como un dispositivo vinculado normal, y sube bastante cuando empezás a enviar mensajes automatizados, sobre todo a números que no te escribieron primero. Fase 1 es solo lectura justamente por eso.
-
-**`~/.whatsapp-agent/` es material sensible.** `auth/` da acceso completo a tu cuenta y `store.db` tiene tus mensajes en texto plano. No lo subas a git ni a un backup compartido. Para desvincular: borrá la carpeta y quitá el dispositivo desde el teléfono.
-
-**El teléfono tiene que estar vinculado, no encendido 24/7.** Con multi-device WhatsApp mantiene la sesión aunque el teléfono esté apagado, pero si pasan ~14 días sin que el teléfono se conecte, WhatsApp cierra los dispositivos vinculados.
-
-**Los mensajes viejos solo aparecen si WhatsApp los manda.** El bridge no puede pedir historial arbitrario hacia atrás; guarda lo que llega en el sync inicial más todo lo nuevo desde que lo instalaste. Mientras más tiempo lo dejes corriendo, más completo queda.
+| Variable | Default | What it does |
+|---|---|---|
+| `WA_AGENT_DIR` | `~/.whatsapp-agent` | Where credentials and the database live. |
+| `WA_BRIDGE_PORT` | `8788` | Local API port. |
+| `WA_BRIDGE_TOKEN` | (none) | If set, the API requires `Authorization: Bearer <token>`. Set it for both processes. |
+| `WA_BROWSER` | `macos` | `macos`, `ubuntu`, or `windows` — the client identity reported to WhatsApp. See [Troubleshooting](#troubleshooting). |
+| `WA_SYNC_FULL_HISTORY` | `true` | `false` to sync less history, faster. |
+| `WA_MARK_ONLINE` | `false` | `true` marks you "online" on connect (your phone stops getting push notifications while connected). Leave it `false`. |
+| `WA_LOG_LEVEL` | `info` | `debug` when something's off. |
+| `WA_SQLITE_LIB` | (system default) | Path to a custom `libsqlite3` if your system's doesn't support FTS5. |
 
 ## Troubleshooting
 
-**Vinculación nueva se cae en loop con `statusCode: 428` / "Connection Terminated", y nunca llega a mostrar el QR.** No es tu red ni tu instalación: desde fines de junio 2026 WhatsApp empezó a rechazar el identificador de plataforma `Browsers.macOS('Desktop')` (y el equivalente en Windows) antes de completar el handshake — [bug conocido de Baileys](https://github.com/WhiskeySockets/Baileys/issues/2677). El fix es usar `Browsers.macOS('Chrome')` en vez de `'Desktop'` en `src/bridge/socket.ts` (ya aplicado en este repo). Si vuelve a pasar tras actualizar `baileys`, revisá si el issue de arriba tiene una solución más reciente.
+Run `whatsapp-agent doctor` first — it checks your SQLite/FTS5 support, data directory,
+bridge reachability, session status, background service, and which MCP clients have
+whatsapp registered (and whether the path they point at still exists). Include its
+output in any bug report.
 
-## Qué falta (fase 2)
+**"Apple could not verify this app" / quarantine.** See [Manual download](#install) above — use the `curl` install, or `xattr -d com.apple.quarantine` on a manual download.
 
-La base ya guarda lo necesario para todo esto:
+**New linking loops with `statusCode: 428` / "Connection Terminated", never shows a QR.** Not your network or install — since late June 2026 WhatsApp has rejected the `'Desktop'` platform identifier before completing the handshake ([known Baileys issue](https://github.com/WhiskeySockets/Baileys/issues/2677)). whatsapp-agent already reports `'Chrome'` instead, which works. If it starts failing again, try `WA_BROWSER=ubuntu whatsapp-agent setup`.
 
-- Búsqueda full-text sobre todo el historial (la tabla `messages_fts` ya se está poblando).
-- Contactos y participantes de grupos como tools.
-- Descarga de media (imágenes, audio, documentos) — el bridge ya guarda el payload cifrado de los mensajes con media.
-- Escritura: enviar mensajes, marcar como leído, reaccionar. Requiere pensar bien la confirmación humana antes de que un agente mande algo en tu nombre.
+**Port already in use.** Something else is on 8788, or a previous bridge is still running. `whatsapp-agent status` tells you if it's actually your own bridge; `WA_BRIDGE_PORT=8789` picks a different one.
+
+**History sync seems stuck / incomplete.** WhatsApp decides how much history to send, not whatsapp-agent — usually the last few months per chat, not everything since account creation. It keeps arriving the longer the bridge stays running.
+
+**Logged out from your phone.** WhatsApp closes linked devices after ~14 days without the phone connecting. Run `whatsapp-agent setup` again to re-link — your existing message history is kept.
+
+**Linux service dies after logout.** See the linger note under [Run it in the background](#run-it-in-the-background).
+
+## FAQ
+
+**Can it send messages?** No — read-only by design. A future phase (not started) might add opt-in writes with explicit human confirmation before anything gets sent on your behalf.
+
+**Will I get banned?** Unknown. Reading and behaving like a normal linked device is low-risk; anything that sends messages automatically is higher-risk, especially to people who haven't messaged you first. That's exactly why this tool doesn't do that.
+
+**Multiple accounts?** Not yet — one bridge, one linked account.
+
+**Windows?** Not supported. macOS and Linux only.
+
+## Things worth knowing
+
+**Baileys is unofficial.** It reimplements the WhatsApp Web protocol; WhatsApp could suspend the account. Risk is low while you only read and behave like a normal linked device.
+
+**`~/.whatsapp-agent/` is sensitive.** `auth/` grants full account access; `store.db` holds your messages in plaintext. Don't put it in a shared backup or commit it anywhere.
+
+**Old messages only show up if WhatsApp sends them.** The bridge can't request arbitrary history — it keeps whatever arrived during the initial sync plus everything new since. The longer it runs, the more complete it gets.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Security
+
+See [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE)
