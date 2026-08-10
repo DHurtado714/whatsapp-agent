@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist/bin/
+*.log
+*.tgz
+SHA256SUMS
+.DS_Store
+
+# Never commit WhatsApp session state.
+.whatsapp-agent/
+auth/
+*.db
+*.db-shm
+*.db-wal
+
+# Stray local editor/tool settings unrelated to this project.
+.claude/settings.local.json
