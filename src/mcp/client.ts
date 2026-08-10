@@ -5,7 +5,7 @@ export class BridgeUnavailableError extends Error {
     super(
       `Could not connect to the WhatsApp bridge at ${BRIDGE_URL}. ` +
         `Start it with "whatsapp-agent bridge" and try again. ` +
-        `Detail: ${cause instanceof Error ? cause.message : String(cause)}`
+        `Detail: ${cause instanceof Error ? cause.message : String(cause)}`,
     )
     this.name = 'BridgeUnavailableError'
   }
@@ -22,7 +22,7 @@ export async function bridgeGet<T>(path: string, params: Record<string, unknown>
   try {
     res = await fetch(url, {
       headers: BRIDGE_TOKEN ? { authorization: `Bearer ${BRIDGE_TOKEN}` } : {},
-      signal: AbortSignal.timeout(20_000)
+      signal: AbortSignal.timeout(20_000),
     })
   } catch (err) {
     throw new BridgeUnavailableError(err)

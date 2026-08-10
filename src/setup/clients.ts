@@ -1,6 +1,6 @@
 import os from 'node:os'
 import path from 'node:path'
-import { ensureJsonKey, type MergeOptions, type MergeResult } from './jsonConfig.js'
+import { type MergeOptions, type MergeResult, ensureJsonKey } from './jsonConfig.js'
 
 export type McpServerEntry = {
   command: string
@@ -48,11 +48,7 @@ async function fileExists(p: string): Promise<boolean> {
   return Bun.file(p).exists()
 }
 
-async function mergeMcpServers(
-  configPath: string,
-  entry: McpServerEntry,
-  opts?: MergeOptions
-): Promise<MergeResult> {
+async function mergeMcpServers(configPath: string, entry: McpServerEntry, opts?: MergeOptions): Promise<MergeResult> {
   const current = await readJsonSafely(configPath)
   const existingServers =
     current && typeof current === 'object' && !Array.isArray(current)
@@ -104,7 +100,7 @@ export async function listClientTargets(): Promise<ClientTarget[]> {
     fileExists(claudeDesktopPath),
     fileExists(claudeCodePath),
     fileExists(path.dirname(cursorPath)),
-    fileExists(path.dirname(windsurfPath))
+    fileExists(path.dirname(windsurfPath)),
   ])
   const claudeCliPresent = Boolean(Bun.which('claude'))
 
@@ -123,29 +119,29 @@ export async function listClientTargets(): Promise<ClientTarget[]> {
         // projects, settings) — mergeMcpServers only ever touches the
         // mcpServers key.
         return mergeMcpServers(claudeCodePath, entry, opts)
-      }
+      },
     },
     {
       id: 'claude-desktop',
       label: 'Claude Desktop',
       detected: claudeDesktopExists,
       configPath: claudeDesktopPath,
-      register: (entry, opts) => mergeMcpServers(claudeDesktopPath, entry, opts)
+      register: (entry, opts) => mergeMcpServers(claudeDesktopPath, entry, opts),
     },
     {
       id: 'cursor',
       label: 'Cursor',
       detected: cursorDirExists,
       configPath: cursorPath,
-      register: (entry, opts) => mergeMcpServers(cursorPath, entry, opts)
+      register: (entry, opts) => mergeMcpServers(cursorPath, entry, opts),
     },
     {
       id: 'windsurf',
       label: 'Windsurf',
       detected: windsurfDirExists,
       configPath: windsurfPath,
-      register: (entry, opts) => mergeMcpServers(windsurfPath, entry, opts)
-    }
+      register: (entry, opts) => mergeMcpServers(windsurfPath, entry, opts),
+    },
   ]
 }
 

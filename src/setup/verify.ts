@@ -1,8 +1,6 @@
 import path from 'node:path'
 
-export type VerifyResult =
-  | { ok: true; toolCount: number; connection: string }
-  | { ok: false; error: string }
+export type VerifyResult = { ok: true; toolCount: number; connection: string } | { ok: false; error: string }
 
 /**
  * Spawns the real `mcp` subcommand as a separate process and drives it with
@@ -21,7 +19,7 @@ export async function verifyMcpEndToEnd(opts?: { command: string; args: string[]
     command: spawn.command,
     args: spawn.args,
     env: process.env as Record<string, string>,
-    stderr: 'ignore'
+    stderr: 'ignore',
   })
   const client = new Client({ name: 'whatsapp-agent-setup', version: '1.0.0' })
 

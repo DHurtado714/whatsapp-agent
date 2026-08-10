@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict'
+import fs from 'node:fs'
 /**
  * End-to-end test without a real WhatsApp connection:
  *   1. seed SQLite with chats/contacts/messages
@@ -11,8 +13,6 @@
  */
 import os from 'node:os'
 import path from 'node:path'
-import fs from 'node:fs'
-import assert from 'node:assert/strict'
 
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-agent-test-'))
 process.env.WA_AGENT_DIR = TMP
@@ -44,8 +44,20 @@ db.upsertLidMapping('99887766@lid', '15550100003')
 db.upsertChat({ jid: '15550100001@s.whatsapp.net', isGroup: false, lastMessageAt: now - 2 * DAY, unreadCount: 3 })
 db.upsertChat({ jid: '15550100002@s.whatsapp.net', isGroup: false, lastMessageAt: now - 10 * DAY })
 db.upsertChat({ jid: '99887766@lid', isGroup: false, lastMessageAt: now - 1 * DAY })
-db.upsertChat({ jid: '120363000111@g.us', name: 'Product Team', isGroup: true, lastMessageAt: now - 3600_000, pinned: true })
-db.upsertChat({ jid: '15550100004@s.whatsapp.net', name: 'Old Chat', isGroup: false, lastMessageAt: now - 200 * DAY, archived: true })
+db.upsertChat({
+  jid: '120363000111@g.us',
+  name: 'Product Team',
+  isGroup: true,
+  lastMessageAt: now - 3600_000,
+  pinned: true,
+})
+db.upsertChat({
+  jid: '15550100004@s.whatsapp.net',
+  name: 'Old Chat',
+  isGroup: false,
+  lastMessageAt: now - 200 * DAY,
+  archived: true,
+})
 
 const msgs = []
 for (let i = 0; i < 12; i++) {
@@ -61,7 +73,7 @@ for (let i = 0; i < 12; i++) {
     quoted_id: null,
     media_type: null,
     filename: null,
-    raw: null
+    raw: null,
   })
 }
 msgs.push({
@@ -76,7 +88,7 @@ msgs.push({
   quoted_id: null,
   media_type: 'document',
   filename: 'invoice.pdf',
-  raw: null
+  raw: null,
 })
 db.upsertMessages(msgs)
 
@@ -220,7 +232,7 @@ const mcpEnv = { ...process.env, WA_AGENT_DIR: TMP, WA_BRIDGE_PORT: String(port)
     env: mcpEnv,
     stdin: 'pipe',
     stdout: 'pipe',
-    stderr: 'ignore'
+    stderr: 'ignore',
   })
   raw.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })}\n`)
   raw.stdin.end()

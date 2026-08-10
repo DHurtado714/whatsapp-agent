@@ -11,8 +11,8 @@ describe('parseMessage', () => {
   test('extendedTextMessage with a quote', () => {
     const r = parseMessage({
       message: {
-        extendedTextMessage: { text: 'replying to this', contextInfo: { stanzaId: 'ABC123' } }
-      }
+        extendedTextMessage: { text: 'replying to this', contextInfo: { stanzaId: 'ABC123' } },
+      },
     } as any)
     expect(r.text).toBe('replying to this')
     expect(r.quotedId).toBe('ABC123')
@@ -20,7 +20,7 @@ describe('parseMessage', () => {
 
   test('image with caption', () => {
     const r = parseMessage({
-      message: { imageMessage: { caption: 'look at this', mimetype: 'image/jpeg' } }
+      message: { imageMessage: { caption: 'look at this', mimetype: 'image/jpeg' } },
     } as any)
     expect(r.text).toBe('look at this')
     expect(r.mediaType).toBe('image')
@@ -40,14 +40,14 @@ describe('parseMessage', () => {
 
   test('ephemeral wrapper is unwrapped', () => {
     const r = parseMessage({
-      message: { ephemeralMessage: { message: { conversation: 'disappearing message' } } }
+      message: { ephemeralMessage: { message: { conversation: 'disappearing message' } } },
     } as any)
     expect(r.text).toBe('disappearing message')
   })
 
   test('viewOnce wrapper is unwrapped', () => {
     const r = parseMessage({
-      message: { viewOnceMessageV2: { message: { imageMessage: { caption: 'one time only' } } } }
+      message: { viewOnceMessageV2: { message: { imageMessage: { caption: 'one time only' } } } },
     } as any)
     expect(r.mediaType).toBe('image')
     expect(r.text).toBe('one time only')
@@ -62,16 +62,14 @@ describe('parseMessage', () => {
   test('location, contact, poll placeholders are in English', () => {
     expect(
       parseMessage({
-        message: { locationMessage: { degreesLatitude: 10, degreesLongitude: 20 } }
-      } as any).text
+        message: { locationMessage: { degreesLatitude: 10, degreesLongitude: 20 } },
+      } as any).text,
     ).toBe('[location] 10,20')
-    expect(
-      parseMessage({ message: { contactMessage: { displayName: 'Alice' } } } as any).text
-    ).toBe('[contact] Alice')
+    expect(parseMessage({ message: { contactMessage: { displayName: 'Alice' } } } as any).text).toBe('[contact] Alice')
     expect(
       parseMessage({
-        message: { pollCreationMessage: { name: 'Lunch?' } }
-      } as any).text
+        message: { pollCreationMessage: { name: 'Lunch?' } },
+      } as any).text,
     ).toBe('[poll] Lunch?')
   })
 })

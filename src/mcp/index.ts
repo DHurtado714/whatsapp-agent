@@ -100,12 +100,12 @@ const server = new McpServer(
   { name: 'whatsapp', version: '0.1.0' },
   {
     instructions:
-      'READ-ONLY access to the user\'s WhatsApp account through a local bridge (Baileys). ' +
+      "READ-ONLY access to the user's WhatsApp account through a local bridge (Baileys). " +
       'Use list_chats to see recent conversations, search_chats to find one by name or number, ' +
-      'and get_messages to read a conversation\'s history. ' +
+      "and get_messages to read a conversation's history. " +
       'get_messages accepts a name or number directly, no need to look up the JID first. ' +
-      'This server cannot send messages or modify anything.'
-  }
+      'This server cannot send messages or modify anything.',
+  },
 )
 
 server.registerTool(
@@ -115,7 +115,7 @@ server.registerTool(
     description:
       'Shows whether the WhatsApp bridge is connected, with which account, and how many chats and messages ' +
       'are stored locally. Use this first if any other tool returns empty results or a connection error.',
-    annotations: { readOnlyHint: true, openWorldHint: false }
+    annotations: { readOnlyHint: true, openWorldHint: false },
   },
   async () => {
     try {
@@ -128,13 +128,13 @@ server.registerTool(
         s.connected_at ? `Connected since: ${fmtDate(s.connected_at)}` : null,
         s.awaiting_qr ? 'Waiting for you to scan the QR in the terminal running the bridge.' : null,
         s.pairing_code ? `Pending pairing code: ${s.pairing_code}` : null,
-        s.last_error ? `Last error: ${s.last_error}` : null
+        s.last_error ? `Last error: ${s.last_error}` : null,
       ].filter(Boolean)
       return ok(lines.join('\n'))
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err))
     }
-  }
+  },
 )
 
 server.registerTool(
@@ -153,9 +153,9 @@ server.registerTool(
         .default('all')
         .describe('Filter by type: all, dm (one-on-one conversations), group.'),
       unread_only: z.boolean().default(false).describe('Only chats with unread messages.'),
-      include_archived: z.boolean().default(false).describe('Include archived chats.')
+      include_archived: z.boolean().default(false).describe('Include archived chats.'),
     },
-    annotations: { readOnlyHint: true, openWorldHint: false }
+    annotations: { readOnlyHint: true, openWorldHint: false },
   },
   async ({ limit, offset, type, unread_only, include_archived }) => {
     try {
@@ -164,13 +164,13 @@ server.registerTool(
         offset,
         type,
         unread_only,
-        include_archived
+        include_archived,
       })
       return ok(`${chats.length} chats:\n\n${renderChats(chats)}`)
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err))
     }
-  }
+  },
 )
 
 server.registerTool(
@@ -182,9 +182,9 @@ server.registerTool(
       'Partial, case-insensitive match. Use this when you know who you want to reach but not the JID.',
     inputSchema: {
       query: z.string().min(1).describe('Name, part of a name, or phone number to search for.'),
-      limit: z.number().int().min(1).max(100).default(20).describe('Maximum number of results.')
+      limit: z.number().int().min(1).max(100).default(20).describe('Maximum number of results.'),
     },
-    annotations: { readOnlyHint: true, openWorldHint: false }
+    annotations: { readOnlyHint: true, openWorldHint: false },
   },
   async ({ query, limit }) => {
     try {
@@ -193,7 +193,7 @@ server.registerTool(
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err))
     }
-  }
+  },
 )
 
 server.registerTool(
@@ -201,12 +201,18 @@ server.registerTool(
   {
     title: 'Read messages from a chat',
     description:
-      'Returns a conversation\'s message history in chronological order. ' +
+      "Returns a conversation's message history in chronological order. " +
       'The chat parameter accepts an exact JID, a contact/group name, or a phone number. ' +
       'Use since/until to narrow by date and limit + before to page backwards.',
     inputSchema: {
       chat: z.string().min(1).describe('JID (e.g. 15551234567@s.whatsapp.net), contact/group name, or number.'),
-      limit: z.number().int().min(1).max(500).default(50).describe('How many messages to return (the most recent in range).'),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(500)
+        .default(50)
+        .describe('How many messages to return (the most recent in range).'),
       since: z
         .string()
         .optional()
@@ -214,9 +220,9 @@ server.registerTool(
       until: z
         .string()
         .optional()
-        .describe('Only messages before this date. Same format as since. Use this to page backwards.')
+        .describe('Only messages before this date. Same format as since. Use this to page backwards.'),
     },
-    annotations: { readOnlyHint: true, openWorldHint: false }
+    annotations: { readOnlyHint: true, openWorldHint: false },
   },
   async ({ chat, limit, since, until }) => {
     try {
@@ -224,12 +230,12 @@ server.registerTool(
       if ('ambiguous' in resolved) {
         if (resolved.ambiguous.length === 0) {
           return fail(
-            `Could not find any chat matching "${chat}". Try list_chats or search_chats to see what's available.`
+            `Could not find any chat matching "${chat}". Try list_chats or search_chats to see what's available.`,
           )
         }
         return ok(
           `"${chat}" matches several chats. Call get_messages again with one's exact jid:\n\n` +
-            renderChats(resolved.ambiguous)
+            renderChats(resolved.ambiguous),
         )
       }
 
@@ -238,14 +244,14 @@ server.registerTool(
         chat_jid: target.jid,
         limit,
         after: parseWhen(since),
-        before: parseWhen(until)
+        before: parseWhen(until),
       })
 
       if (messages.length === 0) {
         return ok(
           `${target.name} (${target.jid}): no messages stored in that range. ` +
             `The chat has ${target.message_count} messages in total. ` +
-            `If that's 0, history sync may still be running — check whatsapp_status.`
+            `If that's 0, history sync may still be running — check whatsapp_status.`,
         )
       }
 
@@ -271,7 +277,7 @@ server.registerTool(
     } catch (err) {
       return fail(err instanceof Error ? err.message : String(err))
     }
-  }
+  },
 )
 
 export async function main(): Promise<void> {

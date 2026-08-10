@@ -15,7 +15,7 @@ const MEDIA_KINDS: Record<string, string> = {
   audioMessage: 'audio',
   documentMessage: 'document',
   stickerMessage: 'sticker',
-  ptvMessage: 'video_note'
+  ptvMessage: 'video_note',
 }
 
 /**

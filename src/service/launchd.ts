@@ -86,7 +86,7 @@ async function run(cmd: string[]): Promise<{ code: number; stdout: string; stder
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
-    proc.exited
+    proc.exited,
   ])
   return { code, stdout, stderr }
 }
@@ -121,7 +121,7 @@ export async function launchdServiceStatus(): Promise<{ installed: boolean; runn
   return {
     installed: true,
     running: result.code === 0 && /state = running/.test(result.stdout),
-    raw: result.stdout
+    raw: result.stdout,
   }
 }
 

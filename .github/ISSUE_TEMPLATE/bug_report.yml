@@ -1,0 +1,28 @@
+name: Bug report
+description: Something isn't working
+labels: [bug]
+body:
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "whatsapp-agent doctor output"
+      description: Run `whatsapp-agent doctor` and paste the full output here.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+      description: What did you expect, and what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+  - type: input
+    id: install-method
+    attributes:
+      label: How did you install whatsapp-agent?
+      placeholder: "curl | bash / manual binary download / built from source"

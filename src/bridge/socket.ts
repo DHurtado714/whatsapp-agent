@@ -1,6 +1,9 @@
+import type { Boom } from '@hapi/boom'
 import {
   Browsers,
   DisconnectReason,
+  type WAMessage,
+  type WAMessageKey,
   fetchLatestBaileysVersion,
   isJidGroup,
   isJidNewsletter,
@@ -9,30 +12,24 @@ import {
   makeCacheableSignalKeyStore,
   makeWASocket,
   useMultiFileAuthState,
-  type WAMessage,
-  type WAMessageKey
 } from 'baileys'
-import type { Boom } from '@hapi/boom'
 import pino from 'pino'
 import qrcode from 'qrcode-terminal'
 
 import { AUTH_DIR, BROWSER, LOG_LEVEL, MARK_ONLINE, SYNC_FULL_HISTORY, ensureDataDir } from '../shared/config.js'
 import {
+  type MessageInput,
   getDb,
   setMeta,
   upsertChat,
   upsertContact,
   upsertLidMapping,
   upsertMessages,
-  type MessageInput
 } from '../shared/db.js'
 import { parseMessage, toMillis } from '../shared/message.js'
 
 // pino to stderr: keeps stdout clean in case something pipes this process.
-export const logger = pino(
-  { level: LOG_LEVEL },
-  pino.destination({ dest: 2, sync: false })
-)
+export const logger = pino({ level: LOG_LEVEL }, pino.destination({ dest: 2, sync: false }))
 
 /**
  * Since late June 2026, WhatsApp started rejecting the 'Desktop' platform
@@ -74,7 +71,7 @@ export const state: BridgeState = {
   lastError: null,
   historySync: { received: 0, complete: false, progress: null },
   connectedAt: null,
-  processStartedAt: Date.now()
+  processStartedAt: Date.now(),
 }
 
 type StartOptions = {
@@ -115,7 +112,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
     version,
     auth: {
       creds: authState.creds,
-      keys: makeCacheableSignalKeyStore(authState.keys, logger)
+      keys: makeCacheableSignalKeyStore(authState.keys, logger),
     },
     logger,
     browser: resolveBrowser(),
@@ -134,7 +131,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       } catch {
         return undefined
       }
-    }
+    },
   })
 
   let pairingRequested = false
@@ -159,7 +156,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
             process.stderr.write(
               `\n  Pairing code: ${code}\n` +
                 `  On your phone: WhatsApp > Settings > Linked devices >\n` +
-                `  Link a device > Link with phone number instead\n\n`
+                `  Link a device > Link with phone number instead\n\n`,
             )
           } catch (err) {
             logger.error({ err }, 'failed to request pairing code')
@@ -193,9 +190,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
         if (stopping) return
 
         if (statusCode === DisconnectReason.loggedOut) {
-          logger.error(
-            'the session was logged out from the phone. Delete the auth/ folder and link again.'
-          )
+          logger.error('the session was logged out from the phone. Delete the auth/ folder and link again.')
           process.exitCode = 1
           return
         }
@@ -240,10 +235,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       const n = ingestMessages(h.messages ?? [])
       state.historySync.received += n
       state.historySync.progress = h.progress ?? null
-      logger.info(
-        { batch: n, total: state.historySync.received, progress: h.progress },
-        'history batch processed'
-      )
+      logger.info({ batch: n, total: state.historySync.received, progress: h.progress }, 'history batch processed')
     }
 
     if (events['messaging-history.status']) {
@@ -282,7 +274,7 @@ function ingestContacts(contacts: any[]): void {
       phoneNumber: c.phoneNumber ?? (c.id.endsWith('@s.whatsapp.net') ? c.id.split('@')[0] : null),
       name: c.name ?? null,
       notify: c.notify ?? null,
-      verifiedName: c.verifiedName ?? null
+      verifiedName: c.verifiedName ?? null,
     })
     if (c.lid && c.phoneNumber) upsertLidMapping(c.lid, c.phoneNumber)
   }
@@ -300,7 +292,7 @@ function ingestChats(chats: any[]): void {
       unreadCount: typeof c.unreadCount === 'number' ? Math.max(c.unreadCount, 0) : null,
       archived: typeof c.archived === 'boolean' ? c.archived : null,
       pinned: c.pinned !== undefined && c.pinned !== null ? Boolean(c.pinned) : null,
-      mutedUntil: c.muteEndTime ? toMillis(c.muteEndTime) : null
+      mutedUntil: c.muteEndTime ? toMillis(c.muteEndTime) : null,
     })
   }
 }
@@ -320,9 +312,7 @@ function ingestMessages(messages: WAMessage[]): number {
 
     const ts = toMillis(msg.messageTimestamp)
     const fromMe = msg.key.fromMe ? 1 : 0
-    const senderRaw = fromMe
-      ? (state.me?.id ?? null)
-      : ((msg.key as any).participant ?? msg.participant ?? chatJid)
+    const senderRaw = fromMe ? (state.me?.id ?? null) : ((msg.key as any).participant ?? msg.participant ?? chatJid)
     const senderJid = senderRaw ? safeNormalize(senderRaw) : null
 
     const isMedia = Boolean(parsed.mediaType)
@@ -344,7 +334,7 @@ function ingestMessages(messages: WAMessage[]): number {
       quoted_id: parsed.quotedId,
       media_type: parsed.mediaType,
       filename: parsed.filename,
-      raw
+      raw,
     })
 
     const prev = seenChats.get(chatJid) ?? 0

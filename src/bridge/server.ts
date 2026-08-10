@@ -15,7 +15,7 @@ export function startServer(): http.Server {
       const payload = JSON.stringify(body)
       res.writeHead(status, {
         'content-type': 'application/json; charset=utf-8',
-        'content-length': Buffer.byteLength(payload)
+        'content-length': Buffer.byteLength(payload),
       })
       res.end(payload)
     }
@@ -28,7 +28,7 @@ export function startServer(): http.Server {
         const html = Buffer.from(DASHBOARD_HTML, 'utf-8')
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
-          'content-length': html.length
+          'content-length': html.length,
         })
         return res.end(html)
       }
@@ -60,7 +60,7 @@ export function startServer(): http.Server {
             connected_at: state.connectedAt,
             process_started_at: state.processStartedAt,
             history_sync: state.historySync,
-            stored: counts()
+            stored: counts(),
           })
 
         case '/chats':
@@ -70,8 +70,8 @@ export function startServer(): http.Server {
               offset: num('offset') ?? 0,
               type: (q.get('type') as 'all' | 'dm' | 'group' | null) ?? 'all',
               unreadOnly: bool('unread_only'),
-              includeArchived: bool('include_archived')
-            })
+              includeArchived: bool('include_archived'),
+            }),
           })
 
         case '/chats/search': {
@@ -96,8 +96,8 @@ export function startServer(): http.Server {
               chatJid: jid,
               limit: num('limit') ?? 50,
               before: num('before'),
-              after: num('after')
-            })
+              after: num('after'),
+            }),
           })
         }
 

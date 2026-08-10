@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-14, macos-13]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit tests
+        run: bun test
+
+      - name: e2e tests (source)
+        run: bun run test:e2e
+
+      - name: Build self-target binary
+        run: bun run scripts/build-binaries.ts self
+
+      - name: Smoke test the compiled binary
+        run: |
+          BIN=$(ls dist/bin/whatsapp-agent-*)
+          "$BIN" --version
+          echo "binary runs: ok"
+
+      - name: e2e tests (compiled binary)
+        run: |
+          BIN=$(ls dist/bin/whatsapp-agent-*)
+          WA_TEST_BIN="$BIN" bun run test:e2e
+
+  install-script:
+    # install.sh rots silently if nobody re-runs it — smoke test it against
+    # this branch's own copy in a clean container. Doesn't hit a real
+    # release (there may not be one yet), just verifies the script itself
+    # is well-formed and its pure logic (arg parsing, arch detection) holds.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax check
+        run: bash -n install.sh
+      - name: Shellcheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.'
+          ignore_paths: 'node_modules'

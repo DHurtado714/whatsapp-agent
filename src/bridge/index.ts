@@ -1,6 +1,6 @@
 import { DATA_DIR } from '../shared/config.js'
-import { logger, start, state, stop } from './socket.js'
 import { startServer } from './server.js'
+import { logger, start, state, stop } from './socket.js'
 
 function parseArgs(argv: string[]) {
   const args = { pair: undefined as string | undefined, login: false, help: false }
@@ -49,10 +49,10 @@ export async function runBridge(argv: string[]): Promise<void> {
       if (args.login) {
         process.stderr.write(
           `\n  Linked as ${state.me?.name ?? state.me?.id}.\n` +
-            `  Downloading history... leave this process running for a few minutes.\n\n`
+            `  Downloading history... leave this process running for a few minutes.\n\n`,
         )
       }
-    }
+    },
   })
 
   const shutdown = () => {

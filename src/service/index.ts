@@ -7,7 +7,7 @@ import {
   restartLaunchdService,
   startLaunchdService,
   stopLaunchdService,
-  uninstallLaunchdService
+  uninstallLaunchdService,
 } from './launchd.js'
 import {
   hasSystemd,
@@ -16,7 +16,7 @@ import {
   startSystemdService,
   stopSystemdService,
   systemdServiceStatus,
-  uninstallSystemdService
+  uninstallSystemdService,
 } from './systemd.js'
 
 export type Platform = 'launchd' | 'systemd' | 'unsupported'
@@ -42,7 +42,7 @@ export function resolveSelfPath(): string {
   if (path.basename(exe).startsWith('bun') && !exe.includes('/$bunfs/')) {
     throw new Error(
       'Refusing to install a service pointing at the bun runtime itself. ' +
-        'This only works from a compiled whatsapp-agent binary, not `bun run`.'
+        'This only works from a compiled whatsapp-agent binary, not `bun run`.',
     )
   }
   try {
@@ -76,7 +76,7 @@ export async function installService(env: Record<string, string> = {}): Promise<
   throw new Error(
     'No supported service manager found (launchd on macOS, systemd --user on Linux). ' +
       'Run "whatsapp-agent bridge" in a terminal you keep open, or use your own ' +
-      'process manager (nohup, tmux, a cron @reboot line, ...).'
+      'process manager (nohup, tmux, a cron @reboot line, ...).',
   )
 }
 

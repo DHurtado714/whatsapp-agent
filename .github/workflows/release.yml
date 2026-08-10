@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-darwin-arm64:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run scripts/build-binaries.ts bun-darwin-arm64
+      - name: Smoke test
+        run: dist/bin/whatsapp-agent-darwin-arm64 --version
+      - name: e2e against the compiled binary
+        run: WA_TEST_BIN=dist/bin/whatsapp-agent-darwin-arm64 bun run test:e2e
+      - name: Package
+        run: |
+          cd dist/bin
+          tar -czf whatsapp-agent-darwin-arm64.tar.gz whatsapp-agent-darwin-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-agent-darwin-arm64
+          path: dist/bin/whatsapp-agent-darwin-arm64.tar.gz
+
+  build-darwin-x64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run scripts/build-binaries.ts bun-darwin-x64
+      - name: Smoke test
+        run: dist/bin/whatsapp-agent-darwin-x64 --version
+      - name: e2e against the compiled binary
+        run: WA_TEST_BIN=dist/bin/whatsapp-agent-darwin-x64 bun run test:e2e
+      - name: Package
+        run: |
+          cd dist/bin
+          tar -czf whatsapp-agent-darwin-x64.tar.gz whatsapp-agent-darwin-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-agent-darwin-x64
+          path: dist/bin/whatsapp-agent-darwin-x64.tar.gz
+
+  build-linux:
+    # All three Linux variants cross-compile fine from one x64 runner — only
+    # macOS artifacts need to be built natively (for codesigning).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run scripts/build-binaries.ts bun-linux-x64 bun-linux-x64-baseline bun-linux-arm64
+      - name: Smoke test (native x64 target)
+        run: dist/bin/whatsapp-agent-linux-x64 --version
+      - name: e2e against the compiled binary (native x64 target)
+        run: WA_TEST_BIN=dist/bin/whatsapp-agent-linux-x64 bun run test:e2e
+      - name: Package
+        run: |
+          cd dist/bin
+          for f in whatsapp-agent-linux-x64 whatsapp-agent-linux-x64-baseline whatsapp-agent-linux-arm64; do
+            tar -czf "$f.tar.gz" "$f"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-agent-linux
+          path: dist/bin/*.tar.gz
+
+  release:
+    needs: [build-darwin-arm64, build-darwin-x64, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: artifacts
+        run: |
+          ls -la
+          sha256sum *.tar.gz > SHA256SUMS
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file .github/RELEASE_NOTES_HEADER.md \
+            artifacts/*.tar.gz artifacts/SHA256SUMS

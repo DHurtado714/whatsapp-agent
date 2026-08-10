@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import qrcode from 'qrcode-terminal'
 import { DISCLAIMER } from '../shared/disclaimer.js'
-import { listClientTargets, renderConfigSnippet, type McpServerEntry } from './clients.js'
+import { type McpServerEntry, listClientTargets, renderConfigSnippet } from './clients.js'
 import { linkAccount, stopLinking, waitForHistorySync } from './link.js'
 import { verifyMcpEndToEnd } from './verify.js'
 
@@ -120,9 +120,9 @@ export async function runSetup(argv: string[]): Promise<void> {
         say(
           '\n⚠ Several attempts failed without connecting. If this keeps looping, WhatsApp may be ' +
             'rejecting the reported client identity — try setting WA_BROWSER=ubuntu and running ' +
-            '"whatsapp-agent setup" again. See the README troubleshooting section for details.\n'
+            '"whatsapp-agent setup" again. See the README troubleshooting section for details.\n',
         )
-      }
+      },
     })
 
     if (!outcome.connected) {
@@ -135,7 +135,7 @@ export async function runSetup(argv: string[]): Promise<void> {
 
   if (!bridgeAlreadyRunning) {
     say('\n== Syncing message history ==')
-    say("(this can take a few minutes — WhatsApp decides how much history to send)")
+    say('(this can take a few minutes — WhatsApp decides how much history to send)')
     let lastLine = ''
     const syncOutcome = await waitForHistorySync({
       onProgress: (s) => {
@@ -144,7 +144,7 @@ export async function runSetup(argv: string[]): Promise<void> {
           process.stdout.write(`\r${line}`)
           lastLine = line
         }
-      }
+      },
     })
     say('')
     if (syncOutcome.complete) {
@@ -152,7 +152,7 @@ export async function runSetup(argv: string[]): Promise<void> {
     } else {
       say(
         `⚠ Sync is still going after a while (${syncOutcome.received.toLocaleString()} messages so far). ` +
-          'It will keep running in the background — continuing setup.'
+          'It will keep running in the background — continuing setup.',
       )
     }
   }
@@ -177,14 +177,17 @@ export async function runSetup(argv: string[]): Promise<void> {
       say(renderConfigSnippet(entry))
     }
     for (const target of detected) {
-      const proceed = confirm(`Register with ${target.label}${target.configPath ? ` (${target.configPath})` : ''}?`, args.yes)
+      const proceed = confirm(
+        `Register with ${target.label}${target.configPath ? ` (${target.configPath})` : ''}?`,
+        args.yes,
+      )
       if (!proceed) {
         say(`  skipped ${target.label}`)
         continue
       }
       const result = await target.register!(entry, {
         confirmChange: (current, desired) =>
-          confirm(`  ${target.label} already has a different whatsapp MCP entry. Overwrite it?`, args.yes, false)
+          confirm(`  ${target.label} already has a different whatsapp MCP entry. Overwrite it?`, args.yes, false),
       })
       switch (result.status) {
         case 'created':
@@ -222,7 +225,7 @@ export async function runSetup(argv: string[]): Promise<void> {
     } else {
       const install = confirm(
         `Install whatsapp-agent as a background service (${platform}), so it starts automatically?`,
-        args.yes
+        args.yes,
       )
       if (install) {
         try {
@@ -232,7 +235,7 @@ export async function runSetup(argv: string[]): Promise<void> {
           if (result.platform === 'systemd' && result.lingerEnabled === false) {
             say(
               '⚠ Could not enable linger for your user — the service will stop when you log out. ' +
-                `Run "sudo loginctl enable-linger ${os.userInfo().username}" to fix that.`
+                `Run "sudo loginctl enable-linger ${os.userInfo().username}" to fix that.`,
             )
           }
         } catch (err) {

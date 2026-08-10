@@ -56,9 +56,7 @@ function pruneBackups(filePath: string, keep: number): void {
   } catch {
     return
   }
-  const backups = entries
-    .filter((f) => f.startsWith(`${base}.bak-`))
-    .sort() // ISO timestamps sort chronologically as strings
+  const backups = entries.filter((f) => f.startsWith(`${base}.bak-`)).sort() // ISO timestamps sort chronologically as strings
   const toDelete = backups.slice(0, Math.max(0, backups.length - keep))
   for (const f of toDelete) {
     try {
@@ -78,7 +76,7 @@ export async function ensureJsonKey(
   filePath: string,
   topLevelKey: string,
   desiredValue: unknown,
-  opts: MergeOptions = {}
+  opts: MergeOptions = {},
 ): Promise<MergeResult> {
   const mode = opts.mode ?? 0o600
   const maxBackups = opts.maxBackups ?? 5
@@ -145,7 +143,7 @@ export async function ensureJsonKey(
     }
     return {
       status: 'parse-error',
-      error: `write verification failed, restored backup: ${err instanceof Error ? err.message : String(err)}`
+      error: `write verification failed, restored backup: ${err instanceof Error ? err.message : String(err)}`,
     }
   }
 

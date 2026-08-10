@@ -52,7 +52,7 @@ async function run(cmd: string[]): Promise<{ code: number; stdout: string; stder
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
-    proc.exited
+    proc.exited,
   ])
   return { code, stdout, stderr }
 }
@@ -72,7 +72,9 @@ export async function tryEnableLinger(): Promise<boolean> {
   return false
 }
 
-export async function installSystemdService(opts: SystemdOptions): Promise<{ unitPath: string; lingerEnabled: boolean }> {
+export async function installSystemdService(
+  opts: SystemdOptions,
+): Promise<{ unitPath: string; lingerEnabled: boolean }> {
   const unitPath = systemdUnitPath()
   fs.mkdirSync(path.dirname(unitPath), { recursive: true })
   fs.writeFileSync(unitPath, renderSystemdUnit(opts))
@@ -97,12 +99,12 @@ export async function systemdServiceStatus(): Promise<{ installed: boolean; acti
   if (!fs.existsSync(systemdUnitPath())) return { installed: false, active: false, enabled: false }
   const [activeResult, enabledResult] = await Promise.all([
     run(['systemctl', '--user', 'is-active', SYSTEMD_UNIT_NAME]),
-    run(['systemctl', '--user', 'is-enabled', SYSTEMD_UNIT_NAME])
+    run(['systemctl', '--user', 'is-enabled', SYSTEMD_UNIT_NAME]),
   ])
   return {
     installed: true,
     active: activeResult.stdout.trim() === 'active',
-    enabled: enabledResult.stdout.trim() === 'enabled'
+    enabled: enabledResult.stdout.trim() === 'enabled',
   }
 }
 

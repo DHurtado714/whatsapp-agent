@@ -16,7 +16,7 @@ export type LinkCallbacks = {
  * Baileys events directly.
  */
 export async function linkAccount(
-  opts: { pairWithNumber?: string; connectTimeoutMs?: number } & LinkCallbacks = {}
+  opts: { pairWithNumber?: string; connectTimeoutMs?: number } & LinkCallbacks = {},
 ): Promise<LinkOutcome> {
   const timeoutMs = opts.connectTimeoutMs ?? 3 * 60_000
   const deadline = Date.now() + timeoutMs
@@ -30,7 +30,7 @@ export async function linkAccount(
 
   await start({
     pairWithNumber: opts.pairWithNumber,
-    printQr: false // the wizard renders the QR itself via onQr, not socket.ts's own stderr QR art
+    printQr: false, // the wizard renders the QR itself via onQr, not socket.ts's own stderr QR art
   })
 
   return new Promise<LinkOutcome>((resolve) => {
@@ -72,10 +72,12 @@ export type HistorySyncOutcome = { complete: boolean; received: number }
  * new messages arriving — WhatsApp doesn't reliably emit a "complete"
  * status, so a pure completion-event wait can hang forever.
  */
-export async function waitForHistorySync(opts: {
-  idleTimeoutMs?: number
-  onProgress?: (s: { received: number; progress: number | null; complete: boolean }) => void
-} = {}): Promise<HistorySyncOutcome> {
+export async function waitForHistorySync(
+  opts: {
+    idleTimeoutMs?: number
+    onProgress?: (s: { received: number; progress: number | null; complete: boolean }) => void
+  } = {},
+): Promise<HistorySyncOutcome> {
   const idleTimeoutMs = opts.idleTimeoutMs ?? 90_000
   let lastReceived = state.historySync.received
   let lastProgressAt = Date.now()

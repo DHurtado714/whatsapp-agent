@@ -2,7 +2,6 @@
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
-// biome-ignore lint: JSON import, needed at runtime for --version and doctor.
 import pkg from '../../package.json' with { type: 'json' }
 import { DISCLAIMER } from '../shared/disclaimer.js'
 
@@ -117,7 +116,7 @@ async function runStatus(argv: string[]): Promise<void> {
       process.stderr.write(
         `Could not reach the bridge at ${BRIDGE_URL}.\n` +
           `Start it with "whatsapp-agent bridge" (or check "whatsapp-agent service status" ` +
-          `if you installed it as a background service).\n`
+          `if you installed it as a background service).\n`,
       )
     }
     process.exit(1)
@@ -135,7 +134,7 @@ async function runStatus(argv: string[]): Promise<void> {
     data.me ? `Account: ${data.me.name ?? '(no name)'} — ${data.me.id}` : 'Account: not linked',
     `Stored locally: ${data.stored.chats} chats, ${data.stored.messages} messages, ${data.stored.contacts} contacts`,
     `History sync: ${data.history_sync.complete ? 'complete' : 'in progress'} (${data.history_sync.received} messages received)`,
-    data.last_error ? `Last error: ${data.last_error}` : null
+    data.last_error ? `Last error: ${data.last_error}` : null,
   ].filter(Boolean)
   process.stdout.write(`${lines.join('\n')}\n`)
 }
@@ -150,7 +149,7 @@ async function runDoctor(argv: string[]): Promise<void> {
     version: VERSION,
     platform: process.platform,
     arch: process.arch,
-    bun: Bun.version
+    bun: Bun.version,
   }
 
   // SQLite / FTS5
@@ -254,7 +253,7 @@ async function runDoctor(argv: string[]): Promise<void> {
       : `Background service: ${report.service_error}`,
     mcpClients.length > 0
       ? `MCP clients registered: ${mcpClients.map((c) => `${c.id}${c.commandExists === false ? ' (binary path missing!)' : ''}`).join(', ')}`
-      : 'MCP clients registered: none found'
+      : 'MCP clients registered: none found',
   ]
   process.stdout.write(`${lines.join('\n')}\n`)
 }
@@ -274,10 +273,7 @@ async function runLogout(argv: string[]): Promise<void> {
   const what = purge
     ? 'delete your linked session AND all stored messages'
     : 'delete your linked session (stored messages are kept)'
-  process.stdout.write(
-    `This will ${what}.\n` +
-      `${purge ? `Database: ${DB_PATH}\n` : ''}Auth: ${AUTH_DIR}\n`
-  )
+  process.stdout.write(`This will ${what}.\n` + `${purge ? `Database: ${DB_PATH}\n` : ''}Auth: ${AUTH_DIR}\n`)
 
   if (!skipConfirm) {
     if (!process.stdin.isTTY) {
@@ -300,7 +296,7 @@ async function runLogout(argv: string[]): Promise<void> {
   process.stdout.write(
     purge
       ? 'Done. Session and stored messages deleted.\n'
-      : 'Done. Session deleted — stored messages were kept. Run "whatsapp-agent bridge" to link again.\n'
+      : 'Done. Session deleted — stored messages were kept. Run "whatsapp-agent bridge" to link again.\n',
   )
 }
 
@@ -317,7 +313,7 @@ async function runService(argv: string[]): Promise<void> {
       if (result.platform === 'systemd' && result.lingerEnabled === false) {
         process.stdout.write(
           '⚠ Could not enable linger for your user — the service will stop when you log out.\n' +
-            `Run "sudo loginctl enable-linger ${process.env.USER ?? '<user>'}" to fix that.\n`
+            `Run "sudo loginctl enable-linger ${process.env.USER ?? '<user>'}" to fix that.\n`,
         )
       }
       return
@@ -353,9 +349,7 @@ async function runService(argv: string[]): Promise<void> {
       return
     }
     default:
-      process.stderr.write(
-        'Usage: whatsapp-agent service <install|uninstall|start|stop|restart|status|logs [-f]>\n'
-      )
+      process.stderr.write('Usage: whatsapp-agent service <install|uninstall|start|stop|restart|status|logs [-f]>\n')
       process.exit(1)
   }
 }

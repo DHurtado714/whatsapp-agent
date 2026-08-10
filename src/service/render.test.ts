@@ -5,9 +5,9 @@ import { renderSystemdUnit } from './systemd.js'
 describe('renderLaunchdPlist', () => {
   test('escapes XML special characters in interpolated paths', () => {
     const xml = renderLaunchdPlist({
-      binPath: '/Users/O\'Brien & Sons/bin/whatsapp-agent',
-      logPath: '/Users/O\'Brien & Sons/.whatsapp-agent/logs/<bridge>.log',
-      env: { WA_LOG_LEVEL: 'info' }
+      binPath: "/Users/O'Brien & Sons/bin/whatsapp-agent",
+      logPath: "/Users/O'Brien & Sons/.whatsapp-agent/logs/<bridge>.log",
+      env: { WA_LOG_LEVEL: 'info' },
     })
     // A raw `&`, `<`, or `'` here would produce a plist that fails
     // `plutil -lint` and launchd rejects with an opaque error.
@@ -21,7 +21,7 @@ describe('renderLaunchdPlist', () => {
     const xml = renderLaunchdPlist({
       binPath: '/usr/local/bin/whatsapp-agent',
       logPath: '/tmp/bridge.log',
-      env: { WA_LOG_LEVEL: 'debug', WA_BRIDGE_PORT: '8788' }
+      env: { WA_LOG_LEVEL: 'debug', WA_BRIDGE_PORT: '8788' },
     })
     expect(xml).toContain('<string>bridge</string>')
     expect(xml).toContain('<key>WA_LOG_LEVEL</key>')
@@ -45,7 +45,7 @@ describe('renderSystemdUnit', () => {
   test('includes the bridge subcommand, Restart=always, and env vars', () => {
     const unit = renderSystemdUnit({
       binPath: '/usr/local/bin/whatsapp-agent',
-      env: { WA_LOG_LEVEL: 'info', WA_BRIDGE_PORT: '8788' }
+      env: { WA_LOG_LEVEL: 'info', WA_BRIDGE_PORT: '8788' },
     })
     expect(unit).toContain('ExecStart=/usr/local/bin/whatsapp-agent bridge')
     expect(unit).toContain('Restart=always')

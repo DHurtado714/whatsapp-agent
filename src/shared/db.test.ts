@@ -1,5 +1,5 @@
-import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
+import { afterAll, afterEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,7 +12,7 @@ import {
   upsertChat,
   upsertContact,
   upsertLidMapping,
-  upsertMessages
+  upsertMessages,
 } from './db.js'
 
 // Every test calls __resetForTests(path) then does synchronous db work only
@@ -43,9 +43,10 @@ describe('bun:sqlite strict binding', () => {
     // in db.ts uses bare named params.
     __resetForTests(scratchDbPath())
     upsertContact({ jid: 'alice@s.whatsapp.net', name: 'Alice' })
-    const row = getDb()
-      .query('SELECT jid, name FROM contacts WHERE jid = ?')
-      .get('alice@s.whatsapp.net') as { jid: string; name: string | null }
+    const row = getDb().query('SELECT jid, name FROM contacts WHERE jid = ?').get('alice@s.whatsapp.net') as {
+      jid: string
+      name: string | null
+    }
     expect(row.name).toBe('Alice')
   })
 
@@ -64,8 +65,8 @@ describe('bun:sqlite strict binding', () => {
         text: 'hello world',
         quoted_id: null,
         media_type: null,
-        filename: null
-      }
+        filename: null,
+      },
     ])
 
     const chat = getChat('chat1@g.us')
@@ -119,7 +120,7 @@ describe('migration v2: English placeholders + FTS rebuild', () => {
       ['m6', '[encuesta] Lunch?'],
       ['m7', '[ubicacion en vivo]'],
       ['m8', '[sticker]'], // already English, must be left untouched
-      ['m9', 'plain text']
+      ['m9', 'plain text'],
     ]
     for (const [id, text] of seedRows) {
       seed

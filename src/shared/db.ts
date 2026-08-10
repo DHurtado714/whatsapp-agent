@@ -72,7 +72,7 @@ export function __resetForTests(newPath: string | null = null): void {
  */
 function assertFts5Available(d: Database): void {
   try {
-    d.exec("CREATE VIRTUAL TABLE IF NOT EXISTS __fts_probe USING fts5(x)")
+    d.exec('CREATE VIRTUAL TABLE IF NOT EXISTS __fts_probe USING fts5(x)')
     d.exec('DROP TABLE __fts_probe')
   } catch (err) {
     throw new Error(
@@ -80,7 +80,7 @@ function assertFts5Available(d: Database): void {
         'If you have a newer SQLite installed separately, point WA_SQLITE_LIB ' +
         'at its shared library (e.g. /opt/homebrew/opt/sqlite/lib/libsqlite3.dylib) ' +
         'and restart.',
-      { cause: err }
+      { cause: err },
     )
   }
 }
@@ -158,7 +158,7 @@ const MIGRATIONS: Migration[] = [
           tokenize = 'unicode61 remove_diacritics 2'
         );
       `)
-    }
+    },
   },
   {
     // v2: the message-placeholder strings written by src/shared/message.ts
@@ -177,19 +177,19 @@ const MIGRATIONS: Migration[] = [
       d.exec(`UPDATE messages SET text = '[voice note]' WHERE text = '[nota de voz]'`)
       d.exec(`UPDATE messages SET text = '[live location]' WHERE text = '[ubicacion en vivo]'`)
       d.exec(
-        `UPDATE messages SET text = '[contacts]' || substr(text, length('[contactos]') + 1) WHERE text LIKE '[contactos]%'`
+        `UPDATE messages SET text = '[contacts]' || substr(text, length('[contactos]') + 1) WHERE text LIKE '[contactos]%'`,
       )
       d.exec(
-        `UPDATE messages SET text = '[contact]' || substr(text, length('[contacto]') + 1) WHERE text LIKE '[contacto]%'`
+        `UPDATE messages SET text = '[contact]' || substr(text, length('[contacto]') + 1) WHERE text LIKE '[contacto]%'`,
       )
       d.exec(
-        `UPDATE messages SET text = '[location]' || substr(text, length('[ubicacion]') + 1) WHERE text LIKE '[ubicacion]%'`
+        `UPDATE messages SET text = '[location]' || substr(text, length('[ubicacion]') + 1) WHERE text LIKE '[ubicacion]%'`,
       )
       d.exec(
-        `UPDATE messages SET text = '[reaction]' || substr(text, length('[reaccion]') + 1) WHERE text LIKE '[reaccion]%'`
+        `UPDATE messages SET text = '[reaction]' || substr(text, length('[reaccion]') + 1) WHERE text LIKE '[reaccion]%'`,
       )
       d.exec(
-        `UPDATE messages SET text = '[poll]' || substr(text, length('[encuesta]') + 1) WHERE text LIKE '[encuesta]%'`
+        `UPDATE messages SET text = '[poll]' || substr(text, length('[encuesta]') + 1) WHERE text LIKE '[encuesta]%'`,
       )
 
       // Rebuild rather than mirror the UPDATEs above into messages_fts: it's
@@ -201,8 +201,8 @@ const MIGRATIONS: Migration[] = [
         SELECT text, chat_jid, msg_id FROM messages WHERE text IS NOT NULL
       `)
       d.exec(`INSERT INTO messages_fts(messages_fts) VALUES('optimize')`)
-    }
-  }
+    },
+  },
 ]
 
 function migrate(d: Database): void {
@@ -246,9 +246,7 @@ export function setMeta(key: string, value: string): void {
 }
 
 export function getMeta(key: string): string | null {
-  const row = getDb().query(`SELECT value FROM meta WHERE key = @key`).get({ key }) as
-    | { value: string }
-    | undefined
+  const row = getDb().query(`SELECT value FROM meta WHERE key = @key`).get({ key }) as { value: string } | undefined
   return row?.value ?? null
 }
 
@@ -273,7 +271,7 @@ export function upsertContact(c: {
          name          = COALESCE(excluded.name, contacts.name),
          notify        = COALESCE(excluded.notify, contacts.notify),
          verified_name = COALESCE(excluded.verified_name, contacts.verified_name),
-         updated_at    = excluded.updated_at`
+         updated_at    = excluded.updated_at`,
     )
     .run({
       jid: c.jid,
@@ -282,7 +280,7 @@ export function upsertContact(c: {
       name: c.name ?? null,
       notify: c.notify ?? null,
       verifiedName: c.verifiedName ?? null,
-      now: Date.now()
+      now: Date.now(),
     })
 }
 
@@ -318,7 +316,7 @@ export function upsertChat(c: {
          archived        = COALESCE(@archived, chats.archived),
          pinned          = COALESCE(@pinned, chats.pinned),
          muted_until     = COALESCE(@mutedUntil, chats.muted_until),
-         updated_at      = @now`
+         updated_at      = @now`,
     )
     .run({
       jid: c.jid,
@@ -329,7 +327,7 @@ export function upsertChat(c: {
       archived: c.archived === undefined || c.archived === null ? null : c.archived ? 1 : 0,
       pinned: c.pinned === undefined || c.pinned === null ? null : c.pinned ? 1 : 0,
       mutedUntil: c.mutedUntil ?? null,
-      now: Date.now()
+      now: Date.now(),
     })
 }
 
@@ -343,11 +341,10 @@ const insertMessageStmt = () =>
        sender_name = COALESCE(excluded.sender_name, messages.sender_name),
        media_type  = COALESCE(excluded.media_type, messages.media_type),
        filename    = COALESCE(excluded.filename, messages.filename),
-       raw         = COALESCE(excluded.raw, messages.raw)`
+       raw         = COALESCE(excluded.raw, messages.raw)`,
   )
 
-const ftsDeleteStmt = () =>
-  getDb().query(`DELETE FROM messages_fts WHERE chat_jid = @chat_jid AND msg_id = @msg_id`)
+const ftsDeleteStmt = () => getDb().query(`DELETE FROM messages_fts WHERE chat_jid = @chat_jid AND msg_id = @msg_id`)
 const ftsInsertStmt = () =>
   getDb().query(`INSERT INTO messages_fts (text, chat_jid, msg_id) VALUES (@text, @chat_jid, @msg_id)`)
 
@@ -374,7 +371,7 @@ export function upsertMessages(rows: MessageInput[]): number {
         quoted_id: r.quoted_id ?? null,
         media_type: r.media_type ?? null,
         filename: r.filename ?? null,
-        raw: r.raw ?? null
+        raw: r.raw ?? null,
       })
       if (r.text) {
         ftsDel.run({ chat_jid: r.chat_jid, msg_id: r.msg_id })
@@ -446,7 +443,7 @@ export function listChats(opts: {
   const where: string[] = []
   const params: Record<string, string | number | null> = {
     limit: Math.min(Math.max(opts.limit ?? 25, 1), 200),
-    offset: Math.max(opts.offset ?? 0, 0)
+    offset: Math.max(opts.offset ?? 0, 0),
   }
   if (opts.type === 'dm') where.push('c.is_group = 0')
   if (opts.type === 'group') where.push('c.is_group = 1')
@@ -489,7 +486,7 @@ export function getMessages(opts: {
   const where = ['m.chat_jid = @chatJid']
   const params: Record<string, string | number | null> = {
     chatJid: opts.chatJid,
-    limit: Math.min(Math.max(opts.limit ?? 50, 1), 500)
+    limit: Math.min(Math.max(opts.limit ?? 50, 1), 500),
   }
   if (opts.before) {
     where.push('m.timestamp < @before')
@@ -523,6 +520,6 @@ export function counts(): { chats: number; messages: number; contacts: number } 
   return {
     chats: (d.query('SELECT COUNT(*) n FROM chats').get() as { n: number }).n,
     messages: (d.query('SELECT COUNT(*) n FROM messages').get() as { n: number }).n,
-    contacts: (d.query('SELECT COUNT(*) n FROM contacts').get() as { n: number }).n
+    contacts: (d.query('SELECT COUNT(*) n FROM contacts').get() as { n: number }).n,
   }
 }

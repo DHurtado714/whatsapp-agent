@@ -6,13 +6,13 @@ describe('renderConfigSnippet', () => {
     const snippet = renderConfigSnippet({
       command: '/usr/local/bin/whatsapp-agent',
       args: ['mcp'],
-      env: { WA_BRIDGE_TOKEN: 'secret' }
+      env: { WA_BRIDGE_TOKEN: 'secret' },
     })
     const parsed = JSON.parse(snippet)
     expect(parsed.mcpServers.whatsapp).toEqual({
       command: '/usr/local/bin/whatsapp-agent',
       args: ['mcp'],
-      env: { WA_BRIDGE_TOKEN: 'secret' }
+      env: { WA_BRIDGE_TOKEN: 'secret' },
     })
   })
 })

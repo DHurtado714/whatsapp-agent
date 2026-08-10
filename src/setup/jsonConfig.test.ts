@@ -37,7 +37,7 @@ describe('ensureJsonKey', () => {
     const file = scratchFile()
     fs.writeFileSync(
       file,
-      JSON.stringify({ unrelatedTopLevelKey: 'keep me', preferences: { theme: 'dark', nested: { a: 1 } } })
+      JSON.stringify({ unrelatedTopLevelKey: 'keep me', preferences: { theme: 'dark', nested: { a: 1 } } }),
     )
     const result = await ensureJsonKey(file, 'mcpServers', { whatsapp: { command: 'x' } })
     expect(result.status).toBe('updated')
@@ -65,7 +65,7 @@ describe('ensureJsonKey', () => {
     fs.writeFileSync(file, JSON.stringify({ mcpServers: { otherTool: { command: 'other' } } }))
     const result = await ensureJsonKey(file, 'mcpServers', {
       otherTool: { command: 'other' },
-      whatsapp: { command: 'whatsapp-agent', args: ['mcp'] }
+      whatsapp: { command: 'whatsapp-agent', args: ['mcp'] },
     })
     expect(result.status).toBe('updated')
     const written = JSON.parse(fs.readFileSync(file, 'utf-8'))
@@ -126,9 +126,14 @@ describe('ensureJsonKey', () => {
     const file = scratchFile()
     fs.writeFileSync(file, JSON.stringify({ mcpServers: { whatsapp: { command: 'old' } } }))
     const before = fs.readFileSync(file, 'utf-8')
-    const result = await ensureJsonKey(file, 'mcpServers', { whatsapp: { command: 'new' } }, {
-      confirmChange: () => false
-    })
+    const result = await ensureJsonKey(
+      file,
+      'mcpServers',
+      { whatsapp: { command: 'new' } },
+      {
+        confirmChange: () => false,
+      },
+    )
     expect(result.status).toBe('declined')
     expect(fs.readFileSync(file, 'utf-8')).toBe(before)
   })
@@ -138,16 +143,26 @@ describe('ensureJsonKey', () => {
     const desired = { whatsapp: { command: 'x' } }
     fs.writeFileSync(file, JSON.stringify({ mcpServers: desired }))
     let called = false
-    await ensureJsonKey(file, 'mcpServers', desired, { confirmChange: () => ((called = true), true) })
+    await ensureJsonKey(file, 'mcpServers', desired, {
+      confirmChange: () => {
+        called = true
+        return true
+      },
+    })
     expect(called).toBe(false)
   })
 
   test('confirmChange can approve the change asynchronously', async () => {
     const file = scratchFile()
     fs.writeFileSync(file, JSON.stringify({ mcpServers: { whatsapp: { command: 'old' } } }))
-    const result = await ensureJsonKey(file, 'mcpServers', { whatsapp: { command: 'new' } }, {
-      confirmChange: async () => true
-    })
+    const result = await ensureJsonKey(
+      file,
+      'mcpServers',
+      { whatsapp: { command: 'new' } },
+      {
+        confirmChange: async () => true,
+      },
+    )
     expect(result.status).toBe('updated')
   })
 
