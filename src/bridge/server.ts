@@ -1,5 +1,5 @@
 import http from 'node:http'
-import { BRIDGE_HOST, BRIDGE_PORT, BRIDGE_TOKEN } from '../shared/config.js'
+import { BRIDGE_HOST, BRIDGE_PORT, getBridgeToken } from '../shared/config.js'
 import { counts, getChat, getMessages, listChats, searchChats } from '../shared/db.js'
 import { DASHBOARD_HTML } from './dashboard.js'
 import { logger, state } from './socket.js'
@@ -23,6 +23,21 @@ export function startServer(): http.Server {
     try {
       if (req.method !== 'GET') return send(405, { error: 'only GET is allowed (read-only bridge)' })
 
+      // Binding to 127.0.0.1 stops other machines from connecting, but a
+      // malicious webpage can still resolve a hostname it controls to
+      // 127.0.0.1 (DNS rebinding) and make same-origin-looking requests
+      // from a real browser. A same-origin cross-site page can't read the
+      // response (CORS), but doesn't need to for a GET-only, side-effect-
+      // free API — a Host check closes that gap.
+      const rawHost = req.headers.host ?? ''
+      // A bracketed IPv6 literal like "[::1]:8788" contains colons itself,
+      // so a naive split(':')[0] would chop it to just "[" — strip the
+      // bracket pair as a unit instead, then fall back to stripping ":port".
+      const host = rawHost.startsWith('[') ? rawHost.slice(0, rawHost.indexOf(']') + 1) : rawHost.split(':')[0]
+      if (host !== '127.0.0.1' && host !== 'localhost' && host !== '[::1]') {
+        return send(403, { error: 'forbidden: request Host must be 127.0.0.1, localhost, or [::1]' })
+      }
+
       // Health dashboard: no chat data, doesn't require a token.
       if ((req.url ?? '/').split('?')[0] === '/') {
         const html = Buffer.from(DASHBOARD_HTML, 'utf-8')
@@ -33,9 +48,10 @@ export function startServer(): http.Server {
         return res.end(html)
       }
 
-      if (BRIDGE_TOKEN) {
+      const bridgeToken = getBridgeToken()
+      if (bridgeToken) {
         const auth = req.headers.authorization ?? ''
-        if (auth !== `Bearer ${BRIDGE_TOKEN}`) return send(401, { error: 'invalid token' })
+        if (auth !== `Bearer ${bridgeToken}`) return send(401, { error: 'invalid token' })
       }
 
       const url = new URL(req.url ?? '/', `http://${BRIDGE_HOST}:${BRIDGE_PORT}`)

@@ -168,7 +168,9 @@ export async function runSetup(argv: string[]): Promise<void> {
       binPath = process.execPath
       say('(running from source — the registered command will only work from this checkout)')
     }
-    const entry: McpServerEntry = { command: binPath, args: ['mcp'] }
+    const { ensureBridgeToken } = await import('../shared/config.js')
+    const token = ensureBridgeToken()
+    const entry: McpServerEntry = { command: binPath, args: ['mcp'], env: { WA_BRIDGE_TOKEN: token } }
 
     const targets = await listClientTargets()
     const detected = targets.filter((t) => t.detected && t.register)

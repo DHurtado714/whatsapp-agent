@@ -1,4 +1,4 @@
-import { BRIDGE_TOKEN, BRIDGE_URL } from '../shared/config.js'
+import { BRIDGE_URL, getBridgeToken } from '../shared/config.js'
 
 export class BridgeUnavailableError extends Error {
   constructor(cause: unknown) {
@@ -18,10 +18,11 @@ export async function bridgeGet<T>(path: string, params: Record<string, unknown>
     url.searchParams.set(k, String(v))
   }
 
+  const bridgeToken = getBridgeToken()
   let res: Response
   try {
     res = await fetch(url, {
-      headers: BRIDGE_TOKEN ? { authorization: `Bearer ${BRIDGE_TOKEN}` } : {},
+      headers: bridgeToken ? { authorization: `Bearer ${bridgeToken}` } : {},
       signal: AbortSignal.timeout(20_000),
     })
   } catch (err) {
