@@ -16,7 +16,7 @@ import type { Boom } from '@hapi/boom'
 import pino from 'pino'
 import qrcode from 'qrcode-terminal'
 
-import { AUTH_DIR, LOG_LEVEL, MARK_ONLINE, SYNC_FULL_HISTORY, ensureDataDir } from '../shared/config.js'
+import { AUTH_DIR, BROWSER, LOG_LEVEL, MARK_ONLINE, SYNC_FULL_HISTORY, ensureDataDir } from '../shared/config.js'
 import {
   getDb,
   setMeta,
@@ -28,11 +28,30 @@ import {
 } from '../shared/db.js'
 import { parseMessage, toMillis } from '../shared/message.js'
 
-// pino a stderr: stdout queda limpio por si alguien encadena procesos.
+// pino to stderr: keeps stdout clean in case something pipes this process.
 export const logger = pino(
   { level: LOG_LEVEL },
   pino.destination({ dest: 2, sync: false })
 )
+
+/**
+ * Since late June 2026, WhatsApp started rejecting the 'Desktop' platform
+ * identifier (and the Windows equivalent) before completing the handshake,
+ * looping new logins on statusCode 428 / "Connection Terminated" without
+ * ever showing a QR (https://github.com/WhiskeySockets/Baileys/issues/2677).
+ * 'Chrome' is the known-good workaround. WA_BROWSER lets you try a
+ * different identity if WhatsApp starts rejecting this one too.
+ */
+function resolveBrowser(): [string, string, string] {
+  switch (BROWSER) {
+    case 'ubuntu':
+      return Browsers.ubuntu('Chrome')
+    case 'windows':
+      return Browsers.windows('Chrome')
+    default:
+      return Browsers.macOS('Chrome')
+  }
+}
 
 export type BridgeState = {
   connection: 'connecting' | 'open' | 'close'
@@ -59,9 +78,9 @@ export const state: BridgeState = {
 }
 
 type StartOptions = {
-  /** Numero (solo digitos, con codigo de pais) para pedir un pairing code en vez de QR. */
+  /** Number (digits only, with country code) to request a pairing code instead of a QR. */
   pairWithNumber?: string
-  /** Imprimir el QR en la terminal. Se desactiva cuando corre como daemon sin TTY. */
+  /** Print the QR to the terminal. Disabled when running as a daemon without a TTY. */
   printQr?: boolean
   onOpen?: () => void
 }
@@ -88,7 +107,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
 
   const { state: authState, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
   const { version, isLatest } = await fetchLatestBaileysVersion()
-  logger.info({ version, isLatest }, 'usando protocolo de WhatsApp Web')
+  logger.info({ version, isLatest }, 'using WhatsApp Web protocol')
 
   state.registered = Boolean(authState.creds.registered)
 
@@ -99,7 +118,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       keys: makeCacheableSignalKeyStore(authState.keys, logger)
     },
     logger,
-    browser: Browsers.macOS('Chrome'),
+    browser: resolveBrowser(),
     syncFullHistory: SYNC_FULL_HISTORY,
     markOnlineOnConnect: MARK_ONLINE,
     shouldSyncHistoryMessage: () => true,
@@ -136,17 +155,17 @@ export async function start(opts: StartOptions = {}): Promise<void> {
           try {
             const code = await sock!.requestPairingCode(opts.pairWithNumber)
             state.pairingCode = code
-            logger.info({ code }, 'codigo de vinculacion generado')
+            logger.info({ code }, 'pairing code generated')
             process.stderr.write(
-              `\n  Codigo de vinculacion: ${code}\n` +
-                `  En tu telefono: WhatsApp > Ajustes > Dispositivos vinculados >\n` +
-                `  Vincular dispositivo > Vincular con numero de telefono\n\n`
+              `\n  Pairing code: ${code}\n` +
+                `  On your phone: WhatsApp > Settings > Linked devices >\n` +
+                `  Link a device > Link with phone number instead\n\n`
             )
           } catch (err) {
-            logger.error({ err }, 'no se pudo pedir el pairing code')
+            logger.error({ err }, 'failed to request pairing code')
           }
         } else if (opts.printQr && !opts.pairWithNumber) {
-          process.stderr.write('\n  Escanea este QR desde WhatsApp > Dispositivos vinculados:\n\n')
+          process.stderr.write('\n  Scan this QR from WhatsApp > Linked devices:\n\n')
           qrcode.generate(update.qr, { small: true }, (art: string) => process.stderr.write(art + '\n'))
         }
       }
@@ -161,7 +180,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
           state.me = sock!.user ? { id: sock!.user.id, name: sock!.user.name } : null
           setMeta('me_jid', state.me?.id ?? '')
           setMeta('last_connected_at', String(Date.now()))
-          logger.info({ me: state.me }, 'conectado a WhatsApp')
+          logger.info({ me: state.me }, 'connected to WhatsApp')
           opts.onOpen?.()
         }
       }
@@ -169,22 +188,22 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       if (update.connection === 'close') {
         const boom = update.lastDisconnect?.error as Boom | undefined
         const statusCode = boom?.output?.statusCode
-        state.lastError = boom?.message ?? 'conexion cerrada'
+        state.lastError = boom?.message ?? 'connection closed'
 
         if (stopping) return
 
         if (statusCode === DisconnectReason.loggedOut) {
           logger.error(
-            'la sesion fue cerrada desde el telefono. Borra la carpeta auth/ y vuelve a vincular.'
+            'the session was logged out from the phone. Delete the auth/ folder and link again.'
           )
           process.exitCode = 1
           return
         }
 
         const delay = statusCode === DisconnectReason.restartRequired ? 250 : 3000
-        logger.warn({ statusCode }, `reconectando en ${delay}ms`)
+        logger.warn({ statusCode }, `reconnecting in ${delay}ms`)
         setTimeout(() => {
-          start(opts).catch((err) => logger.error({ err }, 'fallo al reconectar'))
+          start(opts).catch((err) => logger.error({ err }, 'failed to reconnect'))
         }, delay)
       }
     }
@@ -223,7 +242,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       state.historySync.progress = h.progress ?? null
       logger.info(
         { batch: n, total: state.historySync.received, progress: h.progress },
-        'lote de historial procesado'
+        'history batch processed'
       )
     }
 
@@ -232,7 +251,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       if (s.status === 'complete') {
         state.historySync.complete = true
         setMeta('history_sync_complete_at', String(Date.now()))
-        logger.info({ syncType: s.syncType }, 'sincronizacion de historial completa')
+        logger.info({ syncType: s.syncType }, 'history sync complete')
       }
     }
 
@@ -241,7 +260,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
     }
 
     if (events['messages.update']) {
-      // Ediciones y borrados: re-ingerimos el contenido nuevo cuando viene.
+      // Edits and deletes: re-ingest the new content when it's present.
       for (const u of events['messages.update']) {
         const inner = (u.update as any)?.message
         if (inner && u.key?.remoteJid && u.key?.id) {
@@ -331,13 +350,13 @@ function ingestMessages(messages: WAMessage[]): number {
     const prev = seenChats.get(chatJid) ?? 0
     if (ts > prev) seenChats.set(chatJid, ts)
 
-    // Un mensaje entrante tambien nos dice el pushName del remitente.
+    // An incoming message also tells us the sender's pushName.
     if (!fromMe && senderJid && msg.pushName) {
       upsertContact({ jid: senderJid, notify: msg.pushName })
     }
   }
 
-  // Aseguramos que el chat exista aunque no haya llegado por history sync.
+  // Make sure the chat exists even if it never arrived via history sync.
   for (const [jid, ts] of seenChats) {
     upsertChat({ jid, isGroup: Boolean(isJidGroup(jid)), lastMessageAt: ts })
   }

@@ -16,17 +16,18 @@ function parseArgs(argv: string[]) {
 }
 
 const HELP = `
-wa-bridge - daemon que mantiene tu sesion de WhatsApp viva y guarda todo en SQLite
+wa-bridge - daemon that keeps your WhatsApp session alive and saves everything to SQLite
 
-  wa-bridge                    arranca el daemon (QR en la terminal si no hay sesion)
-  wa-bridge --pair 573001234567   vincula con codigo de 8 digitos en vez de QR
-  wa-bridge --login            solo vincula y sincroniza el historial, luego sigue corriendo
+  wa-bridge                    start the daemon (QR in the terminal if there's no session)
+  wa-bridge --pair 15551234567 link with an 8-digit code instead of a QR
+  wa-bridge --login            just link and sync history, then keep running
 
-Variables de entorno:
-  WA_AGENT_DIR         directorio de datos (default: ~/.whatsapp-agent)
-  WA_BRIDGE_PORT       puerto de la API local (default: 8788)
-  WA_BRIDGE_TOKEN      si se define, la API exige Authorization: Bearer <token>
-  WA_SYNC_FULL_HISTORY "false" para no pedir el historial completo
+Environment variables:
+  WA_AGENT_DIR         data directory (default: ~/.whatsapp-agent)
+  WA_BRIDGE_PORT       local API port (default: 8788)
+  WA_BRIDGE_TOKEN      if set, the API requires Authorization: Bearer <token>
+  WA_BROWSER           macos | ubuntu | windows (default: macos)
+  WA_SYNC_FULL_HISTORY "false" to skip requesting the full history
   WA_LOG_LEVEL         debug | info | warn | error (default: info)
 `
 
@@ -37,7 +38,7 @@ async function main() {
     return
   }
 
-  logger.info({ dataDir: DATA_DIR }, 'iniciando wa-bridge')
+  logger.info({ dataDir: DATA_DIR }, 'starting wa-bridge')
 
   const server = startServer()
 
@@ -47,15 +48,15 @@ async function main() {
     onOpen: () => {
       if (args.login) {
         process.stderr.write(
-          `\n  Vinculado como ${state.me?.name ?? state.me?.id}.\n` +
-            `  Descargando historial... deja este proceso corriendo unos minutos.\n\n`
+          `\n  Linked as ${state.me?.name ?? state.me?.id}.\n` +
+            `  Downloading history... leave this process running for a few minutes.\n\n`
         )
       }
     }
   })
 
   const shutdown = () => {
-    logger.info('cerrando...')
+    logger.info('shutting down...')
     stop()
     server.close(() => process.exit(0))
     setTimeout(() => process.exit(0), 2000).unref()
@@ -65,6 +66,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  logger.error({ err }, 'wa-bridge fallo al arrancar')
+  logger.error({ err }, 'wa-bridge failed to start')
   process.exit(1)
 })

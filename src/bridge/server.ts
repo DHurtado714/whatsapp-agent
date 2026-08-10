@@ -5,9 +5,9 @@ import { DASHBOARD_HTML } from './dashboard.js'
 import { logger, state } from './socket.js'
 
 /**
- * API HTTP local, SOLO LECTURA. Escucha en loopback.
- * El servidor MCP es un cliente delgado de esto: asi la sesion de WhatsApp
- * vive en un unico proceso persistente y varios agentes pueden leer a la vez.
+ * Local, READ-ONLY HTTP API. Listens on loopback only.
+ * The MCP server is a thin client of this: that way the WhatsApp session
+ * lives in a single persistent process and several agents can read at once.
  */
 export function startServer(): http.Server {
   const server = http.createServer((req, res) => {
@@ -21,9 +21,9 @@ export function startServer(): http.Server {
     }
 
     try {
-      if (req.method !== 'GET') return send(405, { error: 'solo se permite GET (bridge de solo lectura)' })
+      if (req.method !== 'GET') return send(405, { error: 'only GET is allowed (read-only bridge)' })
 
-      // Dashboard de salud: sin datos de chats, no requiere token.
+      // Health dashboard: no chat data, doesn't require a token.
       if ((req.url ?? '/').split('?')[0] === '/') {
         const html = Buffer.from(DASHBOARD_HTML, 'utf-8')
         res.writeHead(200, {
@@ -35,7 +35,7 @@ export function startServer(): http.Server {
 
       if (BRIDGE_TOKEN) {
         const auth = req.headers.authorization ?? ''
-        if (auth !== `Bearer ${BRIDGE_TOKEN}`) return send(401, { error: 'token invalido' })
+        if (auth !== `Bearer ${BRIDGE_TOKEN}`) return send(401, { error: 'invalid token' })
       }
 
       const url = new URL(req.url ?? '/', `http://${BRIDGE_HOST}:${BRIDGE_PORT}`)
@@ -76,20 +76,20 @@ export function startServer(): http.Server {
 
         case '/chats/search': {
           const query = q.get('q')
-          if (!query) return send(400, { error: 'falta el parametro q' })
+          if (!query) return send(400, { error: 'missing q parameter' })
           return send(200, { chats: searchChats(query, num('limit') ?? 20) })
         }
 
         case '/chat': {
           const jid = q.get('jid')
-          if (!jid) return send(400, { error: 'falta el parametro jid' })
+          if (!jid) return send(400, { error: 'missing jid parameter' })
           const chat = getChat(jid)
-          return chat ? send(200, { chat }) : send(404, { error: 'chat no encontrado' })
+          return chat ? send(200, { chat }) : send(404, { error: 'chat not found' })
         }
 
         case '/messages': {
           const jid = q.get('chat_jid')
-          if (!jid) return send(400, { error: 'falta el parametro chat_jid' })
+          if (!jid) return send(400, { error: 'missing chat_jid parameter' })
           return send(200, {
             chat: getChat(jid),
             messages: getMessages({
@@ -102,16 +102,20 @@ export function startServer(): http.Server {
         }
 
         default:
-          return send(404, { error: `ruta desconocida: ${url.pathname}` })
+          return send(404, { error: `unknown route: ${url.pathname}` })
       }
     } catch (err) {
-      logger.error({ err }, 'error atendiendo request')
+      logger.error({ err }, 'error handling request')
       send(500, { error: err instanceof Error ? err.message : String(err) })
     }
   })
 
   server.listen(BRIDGE_PORT, BRIDGE_HOST, () => {
-    logger.info(`API de lectura escuchando en http://${BRIDGE_HOST}:${BRIDGE_PORT}`)
+    // Log the actual bound port, not the configured one: BRIDGE_PORT can be
+    // 0 (let the OS pick one, used by the e2e suite to avoid port clashes).
+    const addr = server.address()
+    const boundPort = addr && typeof addr === 'object' ? addr.port : BRIDGE_PORT
+    logger.info(`read-only API listening on http://${BRIDGE_HOST}:${boundPort}`)
   })
 
   return server

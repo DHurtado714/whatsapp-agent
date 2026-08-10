@@ -19,9 +19,9 @@ const MEDIA_KINDS: Record<string, string> = {
 }
 
 /**
- * Extrae texto legible de un WAMessage. WhatsApp anida el contenido real dentro de
- * envolturas (ephemeral, viewOnce, documentWithCaption...), asi que primero
- * normalizamos y despues resolvemos por tipo.
+ * Extracts human-readable text from a WAMessage. WhatsApp nests the real
+ * content inside wrappers (ephemeral, viewOnce, documentWithCaption...), so
+ * we normalize first and then resolve by type.
  */
 export function parseMessage(msg: WAMessage): ParsedMessage {
   const content = normalizeMessageContent(msg.message)
@@ -55,32 +55,32 @@ export function parseMessage(msg: WAMessage): ParsedMessage {
       text = node?.caption ?? null
       break
     case 'audioMessage':
-      text = node?.ptt ? '[nota de voz]' : '[audio]'
+      text = node?.ptt ? '[voice note]' : '[audio]'
       break
     case 'stickerMessage':
       text = '[sticker]'
       break
     case 'locationMessage':
-      text = `[ubicacion] ${node?.degreesLatitude ?? '?'},${node?.degreesLongitude ?? '?'}${
+      text = `[location] ${node?.degreesLatitude ?? '?'},${node?.degreesLongitude ?? '?'}${
         node?.name ? ` (${node.name})` : ''
       }`
       break
     case 'liveLocationMessage':
-      text = '[ubicacion en vivo]'
+      text = '[live location]'
       break
     case 'contactMessage':
-      text = `[contacto] ${node?.displayName ?? ''}`.trim()
+      text = `[contact] ${node?.displayName ?? ''}`.trim()
       break
     case 'contactsArrayMessage':
-      text = `[contactos] ${(node?.contacts ?? []).map((c: any) => c.displayName).join(', ')}`
+      text = `[contacts] ${(node?.contacts ?? []).map((c: any) => c.displayName).join(', ')}`
       break
     case 'reactionMessage':
-      text = `[reaccion] ${node?.text ?? ''}`.trim()
+      text = `[reaction] ${node?.text ?? ''}`.trim()
       break
     case 'pollCreationMessage':
     case 'pollCreationMessageV2':
     case 'pollCreationMessageV3':
-      text = `[encuesta] ${node?.name ?? ''}`.trim()
+      text = `[poll] ${node?.name ?? ''}`.trim()
       break
     case 'buttonsResponseMessage':
       text = node?.selectedDisplayText ?? null
@@ -103,7 +103,7 @@ export function parseMessage(msg: WAMessage): ParsedMessage {
   return { kind: type, text, mediaType, filename, quotedId }
 }
 
-/** WhatsApp entrega timestamps en segundos, a veces como Long de protobufjs. */
+/** WhatsApp delivers timestamps in seconds, sometimes as a protobufjs Long. */
 export function toMillis(ts: unknown): number {
   if (ts === null || ts === undefined) return Date.now()
   const n =

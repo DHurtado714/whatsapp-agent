@@ -1,11 +1,11 @@
-// Dashboard de salud, servido por el propio bridge en GET /.
-// Sin build step: un solo string, sin dependencias externas.
+// Health dashboard, served by the bridge itself on GET /.
+// No build step: a single string, no external dependencies.
 export const DASHBOARD_HTML = `<!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>wa-bridge</title>
+<title>whatsapp-agent</title>
 <style>
   :root {
     --bg: #f7f5f2;
@@ -119,28 +119,28 @@ export const DASHBOARD_HTML = `<!doctype html>
 </head>
 <body>
 <main>
-  <h1><span id="dot" class="dot"></span> wa-bridge <span id="badge" class="badge"></span></h1>
+  <h1><span id="dot" class="dot"></span> whatsapp-agent <span id="badge" class="badge"></span></h1>
 
   <div id="pairing" class="banner info" style="display:none">
-    Código de vinculación: <code id="pairingCode"></code>
+    Pairing code: <code id="pairingCode"></code>
   </div>
   <div id="errorBanner" class="banner" style="display:none"></div>
 
   <div class="grid">
     <div class="cell">
-      <div class="label">Cuenta</div>
+      <div class="label">Account</div>
       <div class="value" id="me">—</div>
     </div>
     <div class="cell">
-      <div class="label">Proceso corriendo</div>
+      <div class="label">Process uptime</div>
       <div class="value" id="uptime">—</div>
     </div>
     <div class="cell">
-      <div class="label">Conectado a WA</div>
+      <div class="label">Connected to WA</div>
       <div class="value" id="connectedFor">—</div>
     </div>
     <div class="cell">
-      <div class="label">Historial</div>
+      <div class="label">History</div>
       <div class="value" id="syncProgress">—</div>
       <div class="sub" id="syncSub"></div>
     </div>
@@ -149,16 +149,16 @@ export const DASHBOARD_HTML = `<!doctype html>
       <div class="value" id="chats">—</div>
     </div>
     <div class="cell">
-      <div class="label">Mensajes</div>
+      <div class="label">Messages</div>
       <div class="value" id="messages">—</div>
     </div>
     <div class="cell">
-      <div class="label">Contactos</div>
+      <div class="label">Contacts</div>
       <div class="value" id="contacts">—</div>
     </div>
   </div>
 
-  <footer id="footer">cargando...</footer>
+  <footer id="footer">loading...</footer>
 </main>
 
 <script>
@@ -177,14 +177,14 @@ export const DASHBOARD_HTML = `<!doctype html>
     return s + 's';
   }
 
-  var CONN_LABEL = { open: 'conectado', connecting: 'conectando', close: 'desconectado' };
+  var CONN_LABEL = { open: 'connected', connecting: 'connecting', close: 'disconnected' };
 
   function render(data) {
     var dot = $('dot'), badge = $('badge');
     dot.className = 'dot';
     if (data.awaiting_qr) {
       dot.classList.add('qr');
-      badge.textContent = 'esperando vinculación';
+      badge.textContent = 'awaiting link';
     } else {
       dot.classList.add(data.connection);
       badge.textContent = CONN_LABEL[data.connection] || data.connection;
@@ -198,14 +198,14 @@ export const DASHBOARD_HTML = `<!doctype html>
 
     var hs = data.history_sync || {};
     $('syncProgress').textContent = hs.complete
-      ? 'completo'
-      : (hs.progress != null ? hs.progress + '%' : (hs.received ? 'en curso' : '—'));
-    $('syncSub').textContent = hs.received ? hs.received.toLocaleString('es') + ' mensajes recibidos' : '';
+      ? 'complete'
+      : (hs.progress != null ? hs.progress + '%' : (hs.received ? 'in progress' : '—'));
+    $('syncSub').textContent = hs.received ? hs.received.toLocaleString() + ' messages received' : '';
 
     var stored = data.stored || {};
-    $('chats').textContent = (stored.chats ?? 0).toLocaleString('es');
-    $('messages').textContent = (stored.messages ?? 0).toLocaleString('es');
-    $('contacts').textContent = (stored.contacts ?? 0).toLocaleString('es');
+    $('chats').textContent = (stored.chats ?? 0).toLocaleString();
+    $('messages').textContent = (stored.messages ?? 0).toLocaleString();
+    $('contacts').textContent = (stored.contacts ?? 0).toLocaleString();
 
     var pairing = $('pairing');
     if (data.pairing_code) {
@@ -218,12 +218,12 @@ export const DASHBOARD_HTML = `<!doctype html>
     var errBox = $('errorBanner');
     if (data.last_error && data.connection !== 'open') {
       errBox.style.display = '';
-      errBox.textContent = 'Último error: ' + data.last_error;
+      errBox.textContent = 'Last error: ' + data.last_error;
     } else {
       errBox.style.display = 'none';
     }
 
-    $('footer').textContent = 'actualizado ' + new Date().toLocaleTimeString('es');
+    $('footer').textContent = 'updated ' + new Date().toLocaleTimeString();
     document.body.classList.remove('stale');
   }
 
@@ -233,7 +233,7 @@ export const DASHBOARD_HTML = `<!doctype html>
       .then(render)
       .catch(function () {
         document.body.classList.add('stale');
-        $('footer').textContent = 'no se pudo consultar /status — el bridge puede estar caído';
+        $('footer').textContent = 'could not reach /status — the bridge may be down';
       });
   }
 

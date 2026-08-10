@@ -3,9 +3,9 @@ import { BRIDGE_TOKEN, BRIDGE_URL } from '../shared/config.js'
 export class BridgeUnavailableError extends Error {
   constructor(cause: unknown) {
     super(
-      `No pude conectarme al bridge de WhatsApp en ${BRIDGE_URL}. ` +
-        `Arrancalo con "wa-bridge" (o "npm run bridge") y volve a intentar. ` +
-        `Detalle: ${cause instanceof Error ? cause.message : String(cause)}`
+      `Could not connect to the WhatsApp bridge at ${BRIDGE_URL}. ` +
+        `Start it with "whatsapp-agent bridge" and try again. ` +
+        `Detail: ${cause instanceof Error ? cause.message : String(cause)}`
     )
     this.name = 'BridgeUnavailableError'
   }
@@ -30,7 +30,7 @@ export async function bridgeGet<T>(path: string, params: Record<string, unknown>
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`bridge respondio ${res.status}: ${body.slice(0, 500)}`)
+    throw new Error(`bridge responded ${res.status}: ${body.slice(0, 500)}`)
   }
   return (await res.json()) as T
 }
