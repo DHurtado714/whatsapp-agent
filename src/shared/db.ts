@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import { Database } from 'bun:sqlite'
 import { DB_PATH, ensureDataDir } from './config.js'
 
 export type ChatRow = {
@@ -26,96 +26,227 @@ export type MessageRow = {
   filename: string | null
 }
 
-let db: Database.Database | null = null
+let db: Database | null = null
+let dbPathOverride: string | null = null
 
-export function getDb(): Database.Database {
+export function getDb(): Database {
   if (db) return db
-  ensureDataDir()
-  db = new Database(DB_PATH)
-  db.pragma('journal_mode = WAL')
-  db.pragma('synchronous = NORMAL')
-  db.pragma('busy_timeout = 5000')
+  const targetPath = dbPathOverride ?? DB_PATH
+  if (!dbPathOverride) ensureDataDir()
+  // strict:true is not optional. Without it bun:sqlite silently binds NULL
+  // for bare named parameters (e.g. `@jid` bound from `{ jid: ... }`) instead
+  // of throwing — every write below uses bare named params, so this single
+  // flag is the difference between a working database and a silently
+  // all-NULL one. See src/shared/db.test.ts for the regression test.
+  db = new Database(targetPath, { create: true, strict: true })
+  db.exec('PRAGMA journal_mode = WAL')
+  db.exec('PRAGMA synchronous = NORMAL')
+  db.exec('PRAGMA busy_timeout = 5000')
+  assertFts5Available(db)
   migrate(db)
   return db
 }
 
-function migrate(d: Database.Database): void {
-  d.exec(`
-    CREATE TABLE IF NOT EXISTS meta (
-      key   TEXT PRIMARY KEY,
-      value TEXT
-    );
+/**
+ * Test-only: close the current connection and point the next getDb() call at
+ * a different file (or back at the default). Synchronous and side-effect
+ * free otherwise — callers must not `await` between calling this and using
+ * the db, so a test body stays a single uninterrupted turn and can't
+ * interleave with another test mutating the same module-level state.
+ */
+export function __resetForTests(newPath: string | null = null): void {
+  // No throwOnError: db.ts relies on db.query()'s statement cache, and those
+  // cached statements are still "outstanding" from SQLite's point of view,
+  // which makes close(true) throw "database is locked" even on a clean
+  // shutdown. A plain close() releases the connection regardless.
+  db?.close()
+  db = null
+  dbPathOverride = newPath
+}
 
-    CREATE TABLE IF NOT EXISTS contacts (
-      jid           TEXT PRIMARY KEY,
-      lid           TEXT,
-      phone_number  TEXT,
-      name          TEXT,
-      notify        TEXT,
-      verified_name TEXT,
-      updated_at    INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_contacts_lid   ON contacts(lid);
-    CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(phone_number);
+/**
+ * bun:sqlite dlopen's the OS-provided libsqlite3 on macOS (Apple's build),
+ * and links its own on Linux. FTS5 support therefore isn't guaranteed the
+ * way it is with a vendored better-sqlite3 build. Fail loudly and early with
+ * an escape hatch instead of a confusing "no such module: fts5" mid-query.
+ */
+function assertFts5Available(d: Database): void {
+  try {
+    d.exec("CREATE VIRTUAL TABLE IF NOT EXISTS __fts_probe USING fts5(x)")
+    d.exec('DROP TABLE __fts_probe')
+  } catch (err) {
+    throw new Error(
+      'This SQLite build does not support FTS5 (needed for message search). ' +
+        'If you have a newer SQLite installed separately, point WA_SQLITE_LIB ' +
+        'at its shared library (e.g. /opt/homebrew/opt/sqlite/lib/libsqlite3.dylib) ' +
+        'and restart.',
+      { cause: err }
+    )
+  }
+}
 
-    -- Mapeo LID <-> numero telefonico. WhatsApp migro a direcciones @lid y
-    -- sin esto muchos chats se ven como identificadores opacos.
-    CREATE TABLE IF NOT EXISTS lid_map (
-      lid TEXT PRIMARY KEY,
-      pn  TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_lid_map_pn ON lid_map(pn);
+// ---------------------------------------------------------------- migrations
 
-    CREATE TABLE IF NOT EXISTS chats (
-      jid             TEXT PRIMARY KEY,
-      name            TEXT,
-      is_group        INTEGER NOT NULL DEFAULT 0,
-      last_message_at INTEGER,
-      unread_count    INTEGER NOT NULL DEFAULT 0,
-      archived        INTEGER NOT NULL DEFAULT 0,
-      pinned          INTEGER NOT NULL DEFAULT 0,
-      muted_until     INTEGER,
-      updated_at      INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_chats_last ON chats(last_message_at DESC);
+type Migration = { version: number; up: (d: Database) => void }
 
-    CREATE TABLE IF NOT EXISTS messages (
-      chat_jid    TEXT NOT NULL,
-      msg_id      TEXT NOT NULL,
-      from_me     INTEGER NOT NULL DEFAULT 0,
-      sender_jid  TEXT,
-      sender_name TEXT,
-      timestamp   INTEGER NOT NULL,
-      kind        TEXT,
-      text        TEXT,
-      quoted_id   TEXT,
-      media_type  TEXT,
-      filename    TEXT,
-      raw         TEXT,
-      PRIMARY KEY (chat_jid, msg_id)
-    );
-    CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_jid, timestamp DESC);
-    CREATE INDEX IF NOT EXISTS idx_messages_ts      ON messages(timestamp DESC);
+const MIGRATIONS: Migration[] = [
+  {
+    // v1: base schema. Idempotent DDL so it's also what a brand-new install runs.
+    version: 1,
+    up: (d) => {
+      d.exec(`
+        CREATE TABLE IF NOT EXISTS meta (
+          key   TEXT PRIMARY KEY,
+          value TEXT
+        );
 
-    -- FTS5 listo para la fase 2 (busqueda de texto en todo el historial).
-    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-      text,
-      chat_jid UNINDEXED,
-      msg_id   UNINDEXED,
-      tokenize = 'unicode61 remove_diacritics 2'
-    );
-  `)
+        CREATE TABLE IF NOT EXISTS contacts (
+          jid           TEXT PRIMARY KEY,
+          lid           TEXT,
+          phone_number  TEXT,
+          name          TEXT,
+          notify        TEXT,
+          verified_name TEXT,
+          updated_at    INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_contacts_lid   ON contacts(lid);
+        CREATE INDEX IF NOT EXISTS idx_contacts_phone ON contacts(phone_number);
+
+        -- LID <-> phone number mapping. WhatsApp migrated to @lid addresses
+        -- and without this many chats show up as opaque identifiers.
+        CREATE TABLE IF NOT EXISTS lid_map (
+          lid TEXT PRIMARY KEY,
+          pn  TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lid_map_pn ON lid_map(pn);
+
+        CREATE TABLE IF NOT EXISTS chats (
+          jid             TEXT PRIMARY KEY,
+          name            TEXT,
+          is_group        INTEGER NOT NULL DEFAULT 0,
+          last_message_at INTEGER,
+          unread_count    INTEGER NOT NULL DEFAULT 0,
+          archived        INTEGER NOT NULL DEFAULT 0,
+          pinned          INTEGER NOT NULL DEFAULT 0,
+          muted_until     INTEGER,
+          updated_at      INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_chats_last ON chats(last_message_at DESC);
+
+        CREATE TABLE IF NOT EXISTS messages (
+          chat_jid    TEXT NOT NULL,
+          msg_id      TEXT NOT NULL,
+          from_me     INTEGER NOT NULL DEFAULT 0,
+          sender_jid  TEXT,
+          sender_name TEXT,
+          timestamp   INTEGER NOT NULL,
+          kind        TEXT,
+          text        TEXT,
+          quoted_id   TEXT,
+          media_type  TEXT,
+          filename    TEXT,
+          raw         TEXT,
+          PRIMARY KEY (chat_jid, msg_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON messages(chat_jid, timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_messages_ts      ON messages(timestamp DESC);
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+          text,
+          chat_jid UNINDEXED,
+          msg_id   UNINDEXED,
+          tokenize = 'unicode61 remove_diacritics 2'
+        );
+      `)
+    }
+  },
+  {
+    // v2: the message-placeholder strings written by src/shared/message.ts
+    // used to be Spanish ("[nota de voz]", "[ubicacion] ...", ...). Rewrite
+    // any already-persisted rows so old and new messages read consistently,
+    // and rebuild the FTS index (it's a *contentful* fts5 table, so it holds
+    // its own copy of `text` and doesn't pick this up automatically).
+    version: 2,
+    up: (d) => {
+      // Exact-match placeholders first, then prefix placeholders that also
+      // carry a caption (e.g. "[contacto] Alice"). Ordering matters:
+      // '[contactos] X' LIKE '[contacto]%' is TRUE, so contactos must run
+      // before contacto or it becomes "[contact]s X". Also note SQLite's
+      // LIKE gives no special meaning to '[' / ']' (unlike T-SQL) and none
+      // of these literals contain '%' or '_', so no escaping is needed.
+      d.exec(`UPDATE messages SET text = '[voice note]' WHERE text = '[nota de voz]'`)
+      d.exec(`UPDATE messages SET text = '[live location]' WHERE text = '[ubicacion en vivo]'`)
+      d.exec(
+        `UPDATE messages SET text = '[contacts]' || substr(text, length('[contactos]') + 1) WHERE text LIKE '[contactos]%'`
+      )
+      d.exec(
+        `UPDATE messages SET text = '[contact]' || substr(text, length('[contacto]') + 1) WHERE text LIKE '[contacto]%'`
+      )
+      d.exec(
+        `UPDATE messages SET text = '[location]' || substr(text, length('[ubicacion]') + 1) WHERE text LIKE '[ubicacion]%'`
+      )
+      d.exec(
+        `UPDATE messages SET text = '[reaction]' || substr(text, length('[reaccion]') + 1) WHERE text LIKE '[reaccion]%'`
+      )
+      d.exec(
+        `UPDATE messages SET text = '[poll]' || substr(text, length('[encuesta]') + 1) WHERE text LIKE '[encuesta]%'`
+      )
+
+      // Rebuild rather than mirror the UPDATEs above into messages_fts: it's
+      // simpler, trivially correct, and also repairs any historical drift
+      // between messages and messages_fts.
+      d.exec('DELETE FROM messages_fts')
+      d.exec(`
+        INSERT INTO messages_fts (text, chat_jid, msg_id)
+        SELECT text, chat_jid, msg_id FROM messages WHERE text IS NOT NULL
+      `)
+      d.exec(`INSERT INTO messages_fts(messages_fts) VALUES('optimize')`)
+    }
+  }
+]
+
+function migrate(d: Database): void {
+  const tableExists = (name: string) =>
+    d.query(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !== null
+
+  let current = (d.query('PRAGMA user_version').get() as { user_version: number }).user_version
+
+  // Bootstrap for pre-existing databases created before this migration
+  // framework existed: the base schema is already applied (CREATE TABLE IF
+  // NOT EXISTS is a no-op anyway), so stamp v1 without re-running its body.
+  if (current === 0 && tableExists('messages')) {
+    d.exec('PRAGMA user_version = 1')
+    current = 1
+  }
+
+  for (const m of MIGRATIONS) {
+    if (m.version <= current) continue
+    if (m.version >= 2 && current >= 1) {
+      // Snapshot before a data-mutating migration. VACUUM INTO is
+      // WAL-consistent, unlike a plain file copy. Use the connection's own
+      // filename, not the DB_PATH constant — they differ under a test-only
+      // path override (see __resetForTests).
+      const backupPath = `${d.filename}.bak-v${current}-${Date.now()}`
+      d.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`)
+    }
+    const run = d.transaction(() => {
+      m.up(d)
+      d.exec(`PRAGMA user_version = ${m.version}`)
+    })
+    run()
+    current = m.version
+  }
 }
 
 export function setMeta(key: string, value: string): void {
   getDb()
-    .prepare(`INSERT INTO meta (key, value) VALUES (?, ?)
+    .query(`INSERT INTO meta (key, value) VALUES (@key, @value)
               ON CONFLICT(key) DO UPDATE SET value = excluded.value`)
-    .run(key, value)
+    .run({ key, value })
 }
 
 export function getMeta(key: string): string | null {
-  const row = getDb().prepare(`SELECT value FROM meta WHERE key = ?`).get(key) as
+  const row = getDb().query(`SELECT value FROM meta WHERE key = @key`).get({ key }) as
     | { value: string }
     | undefined
   return row?.value ?? null
@@ -131,9 +262,9 @@ export function upsertContact(c: {
   notify?: string | null
   verifiedName?: string | null
 }): void {
-  // COALESCE(excluded.x, x) => nunca sobreescribimos un dato bueno con null.
+  // COALESCE(excluded.x, x) => never overwrite a good value with null.
   getDb()
-    .prepare(
+    .query(
       `INSERT INTO contacts (jid, lid, phone_number, name, notify, verified_name, updated_at)
        VALUES (@jid, @lid, @phoneNumber, @name, @notify, @verifiedName, @now)
        ON CONFLICT(jid) DO UPDATE SET
@@ -157,9 +288,9 @@ export function upsertContact(c: {
 
 export function upsertLidMapping(lid: string, pn: string): void {
   getDb()
-    .prepare(`INSERT INTO lid_map (lid, pn) VALUES (?, ?)
+    .query(`INSERT INTO lid_map (lid, pn) VALUES (@lid, @pn)
               ON CONFLICT(lid) DO UPDATE SET pn = excluded.pn`)
-    .run(lid, pn)
+    .run({ lid, pn })
 }
 
 export function upsertChat(c: {
@@ -173,9 +304,10 @@ export function upsertChat(c: {
   mutedUntil?: number | null
 }): void {
   getDb()
-    .prepare(
-      // En el INSERT damos defaults; en el UPDATE referenciamos los parametros
-      // (no `excluded`) para que un campo omitido NO pise el valor ya guardado.
+    .query(
+      // The INSERT branch supplies defaults; the UPDATE branch references
+      // the bound parameters (not `excluded`) so an omitted field does NOT
+      // clobber whatever value is already stored.
       `INSERT INTO chats (jid, name, is_group, last_message_at, unread_count, archived, pinned, muted_until, updated_at)
        VALUES (@jid, @name, @isGroup, @lastMessageAt, COALESCE(@unreadCount, 0), COALESCE(@archived, 0), COALESCE(@pinned, 0), @mutedUntil, @now)
        ON CONFLICT(jid) DO UPDATE SET
@@ -202,7 +334,7 @@ export function upsertChat(c: {
 }
 
 const insertMessageStmt = () =>
-  getDb().prepare(
+  getDb().query(
     `INSERT INTO messages (chat_jid, msg_id, from_me, sender_jid, sender_name, timestamp, kind, text, quoted_id, media_type, filename, raw)
      VALUES (@chat_jid, @msg_id, @from_me, @sender_jid, @sender_name, @timestamp, @kind, @text, @quoted_id, @media_type, @filename, @raw)
      ON CONFLICT(chat_jid, msg_id) DO UPDATE SET
@@ -215,9 +347,9 @@ const insertMessageStmt = () =>
   )
 
 const ftsDeleteStmt = () =>
-  getDb().prepare(`DELETE FROM messages_fts WHERE chat_jid = ? AND msg_id = ?`)
+  getDb().query(`DELETE FROM messages_fts WHERE chat_jid = @chat_jid AND msg_id = @msg_id`)
 const ftsInsertStmt = () =>
-  getDb().prepare(`INSERT INTO messages_fts (text, chat_jid, msg_id) VALUES (?, ?, ?)`)
+  getDb().query(`INSERT INTO messages_fts (text, chat_jid, msg_id) VALUES (@text, @chat_jid, @msg_id)`)
 
 export type MessageInput = MessageRow & { raw?: string | null }
 
@@ -245,8 +377,8 @@ export function upsertMessages(rows: MessageInput[]): number {
         raw: r.raw ?? null
       })
       if (r.text) {
-        ftsDel.run(r.chat_jid, r.msg_id)
-        ftsIns.run(r.text, r.chat_jid, r.msg_id)
+        ftsDel.run({ chat_jid: r.chat_jid, msg_id: r.msg_id })
+        ftsIns.run({ text: r.text, chat_jid: r.chat_jid, msg_id: r.msg_id })
       }
     }
   })
@@ -254,11 +386,11 @@ export function upsertMessages(rows: MessageInput[]): number {
   return rows.length
 }
 
-// ---------------------------------------------------------------- lecturas
+// ---------------------------------------------------------------- reads
 
 /**
- * Nombre legible de un chat, con degradacion elegante:
- *   nombre del chat -> contacto guardado -> pushName -> numero -> jid crudo
+ * Display name for a chat, degrading gracefully:
+ *   chat name -> saved contact -> pushName -> phone number -> raw jid
  */
 const CHAT_NAME_SQL = `
   COALESCE(
@@ -312,7 +444,7 @@ export function listChats(opts: {
   includeArchived?: boolean
 }): ChatView[] {
   const where: string[] = []
-  const params: Record<string, unknown> = {
+  const params: Record<string, string | number | null> = {
     limit: Math.min(Math.max(opts.limit ?? 25, 1), 200),
     offset: Math.max(opts.offset ?? 0, 0)
   }
@@ -325,7 +457,7 @@ export function listChats(opts: {
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     ORDER BY c.pinned DESC, COALESCE(c.last_message_at, 0) DESC
     LIMIT @limit OFFSET @offset`
-  return getDb().prepare(sql).all(params) as ChatView[]
+  return getDb().query(sql).all(params) as ChatView[]
 }
 
 export function searchChats(query: string, limit = 20): ChatView[] {
@@ -337,13 +469,13 @@ export function searchChats(query: string, limit = 20): ChatView[] {
     ORDER BY c.pinned DESC, COALESCE(c.last_message_at, 0) DESC
     LIMIT @limit`
   return getDb()
-    .prepare(sql)
+    .query(sql)
     .all({ q, limit: Math.min(Math.max(limit, 1), 100) }) as ChatView[]
 }
 
 export function getChat(jid: string): ChatView | null {
   const sql = `${CHAT_SELECT} WHERE c.jid = @jid LIMIT 1`
-  return (getDb().prepare(sql).get({ jid }) as ChatView | undefined) ?? null
+  return (getDb().query(sql).get({ jid }) as ChatView | undefined) ?? null
 }
 
 export type MessageView = MessageRow & { sender_display: string | null }
@@ -355,7 +487,7 @@ export function getMessages(opts: {
   after?: number | null
 }): MessageView[] {
   const where = ['m.chat_jid = @chatJid']
-  const params: Record<string, unknown> = {
+  const params: Record<string, string | number | null> = {
     chatJid: opts.chatJid,
     limit: Math.min(Math.max(opts.limit ?? 50, 1), 500)
   }
@@ -382,15 +514,15 @@ export function getMessages(opts: {
     WHERE ${where.join(' AND ')}
     ORDER BY m.timestamp DESC
     LIMIT @limit`
-  const rows = getDb().prepare(sql).all(params) as MessageView[]
-  return rows.reverse() // cronologico ascendente: se lee mejor
+  const rows = getDb().query(sql).all(params) as MessageView[]
+  return rows.reverse() // ascending chronological order reads better
 }
 
 export function counts(): { chats: number; messages: number; contacts: number } {
   const d = getDb()
   return {
-    chats: (d.prepare('SELECT COUNT(*) n FROM chats').get() as { n: number }).n,
-    messages: (d.prepare('SELECT COUNT(*) n FROM messages').get() as { n: number }).n,
-    contacts: (d.prepare('SELECT COUNT(*) n FROM contacts').get() as { n: number }).n
+    chats: (d.query('SELECT COUNT(*) n FROM chats').get() as { n: number }).n,
+    messages: (d.query('SELECT COUNT(*) n FROM messages').get() as { n: number }).n,
+    contacts: (d.query('SELECT COUNT(*) n FROM contacts').get() as { n: number }).n
   }
 }
