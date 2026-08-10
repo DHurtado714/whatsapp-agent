@@ -85,13 +85,14 @@ async function main(): Promise<void> {
       await runLogout(rest)
       return
 
-    case 'setup':
+    case 'setup': {
+      const { runSetup } = await import('../setup/index.js')
+      await runSetup(rest)
+      return
+    }
+
     case 'service':
-      process.stderr.write(
-        `whatsapp-agent ${command}: not available in this build yet.\n` +
-          `See the README for manual setup instructions in the meantime.\n`
-      )
-      process.exit(1)
+      await runService(rest)
       return
 
     default:
@@ -196,10 +197,47 @@ async function runDoctor(argv: string[]): Promise<void> {
     report.bridge_reachable = false
   }
 
+  // Background service
+  try {
+    const svc = await import('../service/index.js')
+    report.service = await svc.serviceStatus()
+  } catch (err) {
+    report.service_error = err instanceof Error ? err.message : String(err)
+  }
+
+  // Which MCP clients have a whatsapp entry, and whether its command still
+  // exists on disk — catches "I moved/reinstalled the binary and forgot to
+  // re-run setup" as a clear diagnosis instead of a silent tool failure.
+  try {
+    const { listClientTargets } = await import('../setup/clients.js')
+    const targets = await listClientTargets()
+    const clients: Array<{ id: string; registered: boolean; commandExists?: boolean }> = []
+    for (const t of targets) {
+      if (!t.configPath) continue
+      const file = Bun.file(t.configPath)
+      if (!(await file.exists())) continue
+      try {
+        const cfg = JSON.parse(await file.text())
+        const entry = cfg?.mcpServers?.whatsapp
+        if (entry?.command) {
+          clients.push({ id: t.id, registered: true, commandExists: fs.existsSync(entry.command) })
+        }
+      } catch {
+        /* unparseable config — not our concern here, jsonConfig.ts refuses to touch it */
+      }
+    }
+    report.mcp_clients = clients
+  } catch (err) {
+    report.mcp_clients_error = err instanceof Error ? err.message : String(err)
+  }
+
   if (json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
     return
   }
+
+  const service = report.service as { platform: string; installed: boolean; running: boolean } | undefined
+  const mcpClients = (report.mcp_clients as Array<{ id: string; registered: boolean; commandExists?: boolean }>) ?? []
 
   const lines = [
     `whatsapp-agent v${report.version} (${report.platform}/${report.arch}, bun ${report.bun})`,
@@ -210,7 +248,13 @@ async function runDoctor(argv: string[]): Promise<void> {
       ? `Stored: ${(report.stored as any).chats} chats, ${(report.stored as any).messages} messages, ${(report.stored as any).contacts} contacts (${Math.round(Number(report.store_db_bytes ?? 0) / 1e6)} MB)`
       : 'Stored: no database yet',
     `History sync complete: ${report.history_sync_complete ? 'yes' : 'no'}`,
-    `Bridge (${report.bridge_url}): ${report.bridge_reachable ? `reachable, connection=${report.bridge_connection}` : 'not reachable'}`
+    `Bridge (${report.bridge_url}): ${report.bridge_reachable ? `reachable, connection=${report.bridge_connection}` : 'not reachable'}`,
+    service
+      ? `Background service: ${service.installed ? `installed (${service.platform}), ${service.running ? 'running' : 'not running'}` : 'not installed'}`
+      : `Background service: ${report.service_error}`,
+    mcpClients.length > 0
+      ? `MCP clients registered: ${mcpClients.map((c) => `${c.id}${c.commandExists === false ? ' (binary path missing!)' : ''}`).join(', ')}`
+      : 'MCP clients registered: none found'
   ]
   process.stdout.write(`${lines.join('\n')}\n`)
 }
@@ -258,6 +302,62 @@ async function runLogout(argv: string[]): Promise<void> {
       ? 'Done. Session and stored messages deleted.\n'
       : 'Done. Session deleted — stored messages were kept. Run "whatsapp-agent bridge" to link again.\n'
   )
+}
+
+// ---------------------------------------------------------------- service
+
+async function runService(argv: string[]): Promise<void> {
+  const [action, ...rest] = argv
+  const svc = await import('../service/index.js')
+
+  switch (action) {
+    case 'install': {
+      const result = await svc.installService({ WA_LOG_LEVEL: process.env.WA_LOG_LEVEL ?? 'info' })
+      process.stdout.write(`Installed (${result.platform}): ${result.path}\n`)
+      if (result.platform === 'systemd' && result.lingerEnabled === false) {
+        process.stdout.write(
+          '⚠ Could not enable linger for your user — the service will stop when you log out.\n' +
+            `Run "sudo loginctl enable-linger ${process.env.USER ?? '<user>'}" to fix that.\n`
+        )
+      }
+      return
+    }
+    case 'uninstall':
+      await svc.uninstallService()
+      process.stdout.write('Uninstalled. Stored data was not touched.\n')
+      return
+    case 'start':
+      await svc.startService()
+      process.stdout.write('Started.\n')
+      return
+    case 'stop':
+      await svc.stopService()
+      process.stdout.write('Stopped.\n')
+      return
+    case 'restart':
+      await svc.restartService()
+      process.stdout.write('Restarted.\n')
+      return
+    case 'status': {
+      const s = await svc.serviceStatus()
+      if (!s.installed) {
+        process.stdout.write(`Not installed (platform: ${s.platform}).\n`)
+      } else {
+        process.stdout.write(`Installed (${s.platform}), ${s.running ? 'running' : 'not running'}.\n`)
+      }
+      return
+    }
+    case 'logs': {
+      const follow = rest.includes('-f') || rest.includes('--follow')
+      for await (const chunk of svc.tailLogs(follow)) process.stdout.write(chunk)
+      return
+    }
+    default:
+      process.stderr.write(
+        'Usage: whatsapp-agent service <install|uninstall|start|stop|restart|status|logs [-f]>\n'
+      )
+      process.exit(1)
+  }
 }
 
 main().catch((err) => {
