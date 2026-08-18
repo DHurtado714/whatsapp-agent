@@ -297,7 +297,14 @@ function ingestChats(chats: any[]): void {
   }
 }
 
-function ingestMessages(messages: WAMessage[]): number {
+/**
+ * Exported because the write path needs it: sock.sendMessage() returns the
+ * WebMessageInfo it just sent, and feeding that straight back through here
+ * makes the message visible to get_messages immediately instead of racing
+ * the messages.upsert event that will arrive for it a moment later. The
+ * upsert is idempotent, so the duplicate is harmless.
+ */
+export function ingestMessages(messages: WAMessage[]): number {
   const rows: MessageInput[] = []
   const seenChats = new Map<string, number>()
 

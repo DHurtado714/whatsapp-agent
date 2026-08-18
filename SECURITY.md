@@ -26,16 +26,30 @@ vulnerabilities:
   application itself (not "the disk is unencrypted"), that's in scope.
 - **The bridge's HTTP API binds to `127.0.0.1` only** and is unauthenticated by default
   (an optional bearer token via `WA_BRIDGE_TOKEN` is supported, and `setup` generates one
-  automatically). A same-machine process can reach chat data without a token. A DNS-
-  rebinding attack from a malicious webpage is mitigated by a `Host` header check in
-  `src/bridge/server.ts` — if you find a way around that check, please report it.
+  automatically). A same-machine process can reach chat data — and, if a write scope is
+  granted, send messages — without a token. That is an accepted tradeoff for a local
+  single-user tool. Two browser-specific gaps are closed deliberately: a DNS-rebinding
+  attack is mitigated by a `Host` header check, and write requests carrying an `Origin`
+  header are refused outright, since only a browser sends one and a `POST`'s side effect
+  lands even when CORS hides the response. If you find a way around either, please report
+  it.
+- **Write access is opt-in and enforced by the bridge**, not by the MCP server. With no
+  scopes granted (the default), every mutating route answers `403`. The MCP server
+  additionally omits write tools it has no scope for, but that is a usability measure —
+  the bridge is the security boundary. A way to perform a mutation without the
+  corresponding scope is in scope for a report.
+- **The `media` scope lets an agent send any file the bridge's user can read.** That is
+  the documented purpose of the scope, so "an agent could exfiltrate a local file over
+  WhatsApp" is an accepted consequence of granting it, not a vulnerability. Don't grant
+  `media` to an agent you wouldn't trust with your filesystem. A path traversal or scope
+  bypass that sends files *without* `media` granted is in scope.
 - **whatsapp-agent talks to WhatsApp through Baileys**, an unofficial protocol
   implementation. Bugs in Baileys itself should generally be reported upstream at
   [WhiskeySockets/Baileys](https://github.com/WhiskeySockets/Baileys), unless the issue
   is specifically in how this project uses it.
 - **Using an unofficial WhatsApp client carries an inherent account-ban/restriction
-  risk.** That's a product risk disclosed in the README, not a security vulnerability to
-  report here.
+  risk**, which increases when you enable sending. That's a product risk disclosed in the
+  README, not a security vulnerability to report here.
 
 ## Supported versions
 

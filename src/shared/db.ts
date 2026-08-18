@@ -523,3 +523,78 @@ export function counts(): { chats: number; messages: number; contacts: number } 
     contacts: (d.query('SELECT COUNT(*) n FROM contacts').get() as { n: number }).n,
   }
 }
+
+// ---------------------------------------------------------------- message keys
+
+/**
+ * Baileys addresses a message by its WAMessageKey, not by our (chat_jid,
+ * msg_id) pair: chatModify, readMessages and quoted replies all need one
+ * back. We don't store keys as such, so rebuild them from the row.
+ *
+ * `participant` identifies *who* sent it inside a group and is required
+ * there — a group key without it is silently ignored by WhatsApp. For 1:1
+ * chats it must be absent, which is why it's only set when is_group.
+ */
+export type StoredMessageKey = {
+  key: { remoteJid: string; id: string; fromMe: boolean; participant?: string }
+  /** Seconds, the unit Baileys expects — our `timestamp` column is in ms. */
+  messageTimestamp: number
+}
+
+export type StoredMessage = StoredMessageKey & {
+  text: string | null
+  raw: string | null
+}
+
+const KEY_SELECT = `
+  SELECT m.chat_jid, m.msg_id, m.from_me, m.sender_jid, m.timestamp, m.text, m.raw, c.is_group
+  FROM messages m
+  LEFT JOIN chats c ON c.jid = m.chat_jid
+`
+
+type KeyRow = {
+  chat_jid: string
+  msg_id: string
+  from_me: number
+  sender_jid: string | null
+  timestamp: number
+  text: string | null
+  raw: string | null
+  is_group: number | null
+}
+
+function toStoredMessage(row: KeyRow | undefined): StoredMessage | null {
+  if (!row) return null
+  return {
+    key: {
+      remoteJid: row.chat_jid,
+      id: row.msg_id,
+      fromMe: row.from_me === 1,
+      ...(row.is_group && row.sender_jid ? { participant: row.sender_jid } : {}),
+    },
+    messageTimestamp: Math.floor(row.timestamp / 1000),
+    text: row.text,
+    raw: row.raw,
+  }
+}
+
+export function getStoredMessage(chatJid: string, msgId: string): StoredMessage | null {
+  const sql = `${KEY_SELECT} WHERE m.chat_jid = @chatJid AND m.msg_id = @msgId LIMIT 1`
+  return toStoredMessage(getDb().query(sql).get({ chatJid, msgId }) as KeyRow | undefined)
+}
+
+export function getLastMessageKey(chatJid: string): StoredMessage | null {
+  const sql = `${KEY_SELECT} WHERE m.chat_jid = @chatJid ORDER BY m.timestamp DESC LIMIT 1`
+  return toStoredMessage(getDb().query(sql).get({ chatJid }) as KeyRow | undefined)
+}
+
+/** Most recent message we *received* — what readMessages() needs to mark a chat read up to. */
+export function getLastInboundMessageKey(chatJid: string): StoredMessage | null {
+  const sql = `${KEY_SELECT} WHERE m.chat_jid = @chatJid AND m.from_me = 0 ORDER BY m.timestamp DESC LIMIT 1`
+  return toStoredMessage(getDb().query(sql).get({ chatJid }) as KeyRow | undefined)
+}
+
+/** True when we've ever seen this chat — the check behind the "no new contacts" guardrail. */
+export function chatExists(jid: string): boolean {
+  return getDb().query(`SELECT 1 FROM chats WHERE jid = @jid LIMIT 1`).get({ jid }) !== null
+}

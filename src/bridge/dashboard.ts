@@ -228,12 +228,20 @@ export const DASHBOARD_HTML = `<!doctype html>
   }
 
   function poll() {
-    fetch('/status', { cache: 'no-store' })
-      .then(function (r) { return r.json(); })
+    var token = new URLSearchParams(location.search).get('token');
+    var opts = { cache: 'no-store' };
+    if (token) opts.headers = { Authorization: 'Bearer ' + token };
+    fetch('/status', opts)
+      .then(function (r) {
+        if (r.status === 401) throw new Error('unauthorized');
+        return r.json();
+      })
       .then(render)
-      .catch(function () {
+      .catch(function (err) {
         document.body.classList.add('stale');
-        $('footer').textContent = 'could not reach /status — the bridge may be down';
+        $('footer').textContent = err && err.message === 'unauthorized'
+          ? 'missing or invalid token — open the dashboard URL printed when the bridge started'
+          : 'could not reach /status — the bridge may be down';
       });
   }
 

@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-agent",
   "version": "0.1.0",
-  "description": "Read-only WhatsApp bridge + MCP server, so AI agents can read your chats.",
+  "description": "WhatsApp bridge + MCP server, so AI agents can read your chats — and, with opt-in permissions, reply to them.",
   "type": "module",
   "license": "MIT",
   "author": "Daniel Hurtado",

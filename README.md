@@ -1,6 +1,7 @@
 # whatsapp-agent
 
-Read-only WhatsApp bridge + MCP server, so your AI assistant can read your chats.
+WhatsApp bridge + MCP server, so your AI assistant can read your chats — and, if you
+let it, reply to them.
 
 ```
 You:    What did I talk about with Alice last week?
@@ -16,8 +17,10 @@ Claude: You and Alice discussed the Q3 budget review on Tuesday — she asked
 > It talks to WhatsApp through [Baileys](https://github.com/WhiskeySockets/Baileys), an
 > unofficial, reverse-engineered implementation of the WhatsApp Web protocol. Using an
 > unofficial client can violate WhatsApp's Terms of Service and **may get your account
-> banned or restricted**. This tool is read-only, but read-only is not a guarantee of
-> safety. Use it only on a WhatsApp account you own. Your messages are stored
+> banned or restricted**. Reading is not a guarantee of safety, and **sending messages is
+> riskier than reading them** — automated sending is what WhatsApp's anti-spam systems
+> look for. Writing is off by default; you opt in per capability, and you own that choice.
+> Use it only on a WhatsApp account you own. Your messages are stored
 > **unencrypted** in a local SQLite file on your machine. Provided "as is", without
 > warranty of any kind. See [Things worth knowing](#things-worth-knowing) below.
 
@@ -116,17 +119,84 @@ installed) and skips it instead of redoing it.
 
 ## What your agent can do
 
-| Tool | What it's for |
-|---|---|
-| `whatsapp_status` | Is the bridge connected, which account, how much is stored, sync progress. |
-| `list_chats` | Recent conversations, pinned first. Filter by type (dm/group), unread, archived. |
-| `search_chats` | Find a chat by contact name, group name, or phone number. |
-| `get_messages` | Read a conversation's history. Accepts a JID, a name, or a number — no need to look up an ID first. Supports date ranges (`since`/`until`, ISO or relative like `7d`). |
+Reading is always available. Everything that changes something is gated behind a
+permission scope you grant explicitly — see [Permissions](#permissions).
 
-Example prompts: *"What did Bob say about the trip?"*, *"Summarize the #launch group from this week"*, *"Find the message where someone sent me an address."*
+**Always available (read)**
 
-It's read-only by design — it cannot send messages, mark things as read, or change
-anything on your account.
+| Tool              | What it's for                                                                                                                                                          |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `whatsapp_status` | Is the bridge connected, which account, how much is stored, sync progress, which write scopes are active.                                                               |
+| `list_chats`      | Recent conversations, pinned first. Filter by type (dm/group), unread, archived.                                                                                       |
+| `search_chats`    | Find a chat by contact name, group name, or phone number.                                                                                                              |
+| `get_messages`    | Read a conversation's history. Accepts a JID, a name, or a number — no need to look up an ID first. Supports date ranges (`since`/`until`, ISO or relative like `7d`). |
+
+Example prompts: _"What did Bob say about the trip?"_, _"Summarize the #launch group from this week"_, _"Find the message where someone sent me an address."_
+
+**Opt-in (write)**
+
+| Tool                        | Scope    | What it does                                                                                       |
+| --------------------------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `send_message`              | `send`   | Send a text message, optionally as a reply to a specific message, with @-mentions.                 |
+| `react_to_message`          | `send`   | Add or remove an emoji reaction.                                                                   |
+| `edit_message`              | `send`   | Rewrite one of your own messages (WhatsApp allows this for a limited window).                       |
+| `delete_message`            | `send`   | Retract a message for everyone, or remove it only from your devices.                                |
+| `send_media`                | `media`  | Send an image, video, audio clip, voice note, document or sticker from a local path or an http URL. |
+| `mark_chat_read`            | `chats`  | Clear the unread badge and send a read receipt.                                                     |
+| `update_chat`               | `chats`  | Archive, pin or mute a chat.                                                                        |
+| `send_typing`               | `chats`  | Show "typing…" / "recording…", or clear it.                                                         |
+| `create_group`              | `groups` | Create a group and add participants.                                                                |
+| `manage_group_participants` | `groups` | Add, remove, promote or demote participants.                                                        |
+| `update_group`              | `groups` | Rename, change the description, get/revoke the invite link, or leave.                               |
+
+Write tools only appear in the tool list when their scope is granted, so a read-only
+install advertises exactly the four read tools and nothing else.
+
+## Permissions
+
+Write access is off by default. Nothing you do to the MCP client changes that — the
+**bridge** is what enforces it, because the bridge is the process holding the WhatsApp
+session:
+
+```bash
+whatsapp-agent bridge                          # read-only (default)
+whatsapp-agent bridge --allow=send             # + send/reply/react/edit/delete
+whatsapp-agent bridge --allow=send,chats       # + mark read, archive, pin, mute, typing
+whatsapp-agent bridge --allow-write            # everything, including group admin
+whatsapp-agent bridge --read-only              # force read-only, ignoring WA_ALLOW
+```
+
+`whatsapp-agent setup` asks which level you want and writes it into both the background
+service and your MCP client's config, so the two agree. `WA_ALLOW` is the env equivalent
+of `--allow`; `whatsapp-agent status` shows what's actually in force.
+
+| Scope    | Grants                                                             |
+| -------- | ------------------------------------------------------------------ |
+| `send`   | Send, reply, react, edit, delete messages                          |
+| `media`  | Send files (images, video, audio, documents, stickers)             |
+| `chats`  | Mark read, archive, pin, mute, typing indicators                   |
+| `groups` | Create groups, add/remove/promote participants, rename, leave      |
+
+### Guardrails
+
+These apply whenever any write scope is granted:
+
+- **No new contacts.** A write to a number with no existing chat is refused. This is the
+  guard against an agent that has invented a phone number and would otherwise message a
+  stranger. Override with `--allow-new-contacts` if you actually need to start new
+  conversations.
+- **Rate limit.** 10 outbound messages per minute by default (`--rate-limit=<n>`, `0`
+  disables it). Reactions, typing indicators and chat settings don't count against it.
+  This is as much about not looking like a spam bot to WhatsApp as it is about a runaway
+  loop.
+- **Dry run.** `--dry-run` accepts every write call and reports exactly what it *would*
+  have done without touching WhatsApp. Useful for testing prompts and automations.
+- **Ambiguity is fatal.** `get_messages` will offer you a list when a name matches several
+  chats; the write tools refuse instead. A misread name costs a turn when reading and
+  costs you a message to the wrong person when writing.
+- **Your MCP client still asks.** Write tools are annotated `readOnlyHint: false` (and
+  `destructiveHint: true` for deletions and group changes), which is what makes clients
+  like Claude Code prompt for approval before each call.
 
 ## How it works
 
@@ -134,7 +204,8 @@ anything on your account.
   your phone ──WhatsApp Web protocol──▶  whatsapp-agent bridge  ──▶  ~/.whatsapp-agent/store.db
                                               (daemon)                    (SQLite)
                                                   │
-                                                  │ local HTTP, read-only
+                                                  │ local HTTP (GET always,
+                                                  │ POST only for granted scopes)
                                                   │ 127.0.0.1:8788
                                                   ▼
      Claude / any MCP-capable agent  ◀──stdio MCP──  whatsapp-agent mcp
@@ -188,16 +259,20 @@ sudo loginctl enable-linger $USER
 
 Everything's an environment variable, all optional:
 
-| Variable | Default | What it does |
-|---|---|---|
-| `WA_AGENT_DIR` | `~/.whatsapp-agent` | Where credentials and the database live. |
-| `WA_BRIDGE_PORT` | `8788` | Local API port. |
-| `WA_BRIDGE_TOKEN` | (none) | If set, the API requires `Authorization: Bearer <token>`. Set it for both processes. |
-| `WA_BROWSER` | `macos` | `macos`, `ubuntu`, or `windows` — the client identity reported to WhatsApp. See [Troubleshooting](#troubleshooting). |
-| `WA_SYNC_FULL_HISTORY` | `true` | `false` to sync less history, faster. |
-| `WA_MARK_ONLINE` | `false` | `true` marks you "online" on connect (your phone stops getting push notifications while connected). Leave it `false`. |
-| `WA_LOG_LEVEL` | `info` | `debug` when something's off. |
-| `WA_SQLITE_LIB` | (system default) | Path to a custom `libsqlite3` if your system's doesn't support FTS5. |
+| Variable               | Default             | What it does                                                                                                          |
+| ---------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `WA_AGENT_DIR`         | `~/.whatsapp-agent` | Where credentials and the database live.                                                                              |
+| `WA_BRIDGE_PORT`       | `8788`              | Local API port.                                                                                                       |
+| `WA_BRIDGE_TOKEN`      | (none)              | If set, the API requires `Authorization: Bearer <token>`. Set it for both processes.                                  |
+| `WA_ALLOW`             | (none)              | Write scopes to grant: `send`, `media`, `chats`, `groups`, or `all`. Same as `--allow`. Empty means read-only.         |
+| `WA_ALLOW_NEW_CONTACTS`| `false`             | `true` permits writing to numbers with no existing chat.                                                               |
+| `WA_DRY_RUN`           | `false`             | `true` reports what writes would do without performing them.                                                          |
+| `WA_SEND_RATE_LIMIT`   | `10`                | Outbound messages per minute. `0` disables the limit.                                                                  |
+| `WA_BROWSER`           | `macos`             | `macos`, `ubuntu`, or `windows` — the client identity reported to WhatsApp. See [Troubleshooting](#troubleshooting).  |
+| `WA_SYNC_FULL_HISTORY` | `true`              | `false` to sync less history, faster.                                                                                 |
+| `WA_MARK_ONLINE`       | `false`             | `true` marks you "online" on connect (your phone stops getting push notifications while connected). Leave it `false`. |
+| `WA_LOG_LEVEL`         | `info`              | `debug` when something's off.                                                                                         |
+| `WA_SQLITE_LIB`        | (system default)    | Path to a custom `libsqlite3` if your system's doesn't support FTS5.                                                  |
 
 ## Troubleshooting
 
@@ -220,9 +295,11 @@ output in any bug report.
 
 ## FAQ
 
-**Can it send messages?** No — read-only by design. A future phase (not started) might add opt-in writes with explicit human confirmation before anything gets sent on your behalf.
+**Can it send messages?** Only if you turn that on. Start the bridge with `--allow=send` (or pick a write level during `whatsapp-agent setup`). With no scopes granted — the default — every write is refused by the bridge and the write tools aren't even advertised to your agent. See [Permissions](#permissions).
 
-**Will I get banned?** Unknown. Reading and behaving like a normal linked device is low-risk; anything that sends messages automatically is higher-risk, especially to people who haven't messaged you first. That's exactly why this tool doesn't do that.
+**Will I get banned?** Unknown, and sending raises the risk. Reading and behaving like a normal linked device is low-risk; automated sending is what anti-spam systems are built to catch, especially to people who haven't messaged you first. If you enable `send`, keep the rate limit low, leave the new-contacts guard on, and don't use it for outreach.
+
+**Can I let it read but not reply?** That's the default — you have to opt in per scope, and you can revoke it at any time by restarting the bridge with `--read-only`.
 
 **Multiple accounts?** Not yet — one bridge, one linked account.
 
@@ -230,7 +307,7 @@ output in any bug report.
 
 ## Things worth knowing
 
-**Baileys is unofficial.** It reimplements the WhatsApp Web protocol; WhatsApp could suspend the account. Risk is low while you only read and behave like a normal linked device.
+**Baileys is unofficial.** It reimplements the WhatsApp Web protocol; WhatsApp could suspend the account. Risk is low while you only read and behave like a normal linked device, and higher as soon as you let something send messages on your behalf.
 
 **`~/.whatsapp-agent/` is sensitive.** `auth/` grants full account access; `store.db` holds your messages in plaintext. Don't put it in a shared backup or commit it anywhere.
 

@@ -1,0 +1,4 @@
+[test]
+# Points the whole test process at a throwaway data directory before any module
+# is imported. See scripts/test-preload.ts for why this can't live in a test file.
+preload = ["./scripts/test-preload.ts"]

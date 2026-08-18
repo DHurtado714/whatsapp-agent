@@ -9,20 +9,24 @@ const VERSION: string = pkg.version
 
 const HELP = `whatsapp-agent v${VERSION}
 
-Read-only WhatsApp bridge + MCP server, so AI agents can read your chats.
+WhatsApp bridge + MCP server, so AI agents can read — and, if you let them,
+write — your chats. Reading is always allowed; writing is opt-in per scope.
 
 Usage: whatsapp-agent <command> [options]
 
 Commands:
-  setup              Interactive setup wizard (link WhatsApp, register your
-                      MCP client, install the background service)
+  setup              Interactive setup wizard (link WhatsApp, choose what
+                      agents may do, register your MCP client, install the
+                      background service)
   bridge              Start the daemon that keeps WhatsApp linked and syncs
                       chats/messages into SQLite. Run "whatsapp-agent bridge
-                      --help" for its own options (--pair, --login).
+                      --help" for its own options (--pair, --login, --allow,
+                      --read-only, --dry-run).
   mcp                 Start the MCP server over stdio. This is what your AI
                       client (Claude Code, Claude Desktop, ...) should run —
                       not something you run by hand.
-  status [--json]     Show whether the bridge is connected and what's stored.
+  status [--json]     Show whether the bridge is connected, what's stored, and
+                      which write permissions are active.
   service <action>    Manage the background service: install, uninstall,
                        start, stop, restart, status, logs.
   logout [--purge] [--yes]
@@ -105,38 +109,60 @@ async function main(): Promise<void> {
 async function runStatus(argv: string[]): Promise<void> {
   const json = argv.includes('--json')
   const { BRIDGE_URL } = await import('../shared/config.js')
+  // Through bridgeGet, not a bare fetch: the bridge requires the token once
+  // setup has generated one, and a bare fetch would just get a 401 here.
+  const { bridgeGet } = await import('../mcp/client.js')
 
-  let res: Response
+  let data: any
   try {
-    res = await fetch(new URL('/status', BRIDGE_URL), { signal: AbortSignal.timeout(5000) })
+    data = await bridgeGet<any>('/status')
   } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
     if (json) {
-      process.stdout.write(`${JSON.stringify({ reachable: false, error: String(err) })}\n`)
+      process.stdout.write(`${JSON.stringify({ reachable: false, error: detail })}\n`)
     } else {
       process.stderr.write(
-        `Could not reach the bridge at ${BRIDGE_URL}.\n` +
+        `Could not read the bridge status at ${BRIDGE_URL}.\n` +
           `Start it with "whatsapp-agent bridge" (or check "whatsapp-agent service status" ` +
-          `if you installed it as a background service).\n`,
+          `if you installed it as a background service).\n${detail}\n`,
       )
     }
     process.exit(1)
     return
   }
 
-  const data = (await res.json()) as any
   if (json) {
     process.stdout.write(`${JSON.stringify(data, null, 2)}\n`)
     return
   }
 
+  const p = data.permissions
   const lines = [
     `Connection: ${data.connection}${data.registered ? '' : ' (not linked yet)'}`,
     data.me ? `Account: ${data.me.name ?? '(no name)'} — ${data.me.id}` : 'Account: not linked',
     `Stored locally: ${data.stored.chats} chats, ${data.stored.messages} messages, ${data.stored.contacts} contacts`,
     `History sync: ${data.history_sync.complete ? 'complete' : 'in progress'} (${data.history_sync.received} messages received)`,
+    p ? `Permissions: ${formatPermissions(p)}` : null,
     data.last_error ? `Last error: ${data.last_error}` : null,
   ].filter(Boolean)
   process.stdout.write(`${lines.join('\n')}\n`)
+}
+
+/** Renders the /status permissions block. Mirrors describePermissions(), but from the wire shape. */
+function formatPermissions(p: {
+  scopes: string[]
+  read_only: boolean
+  dry_run: boolean
+  allow_new_contacts: boolean
+  send_rate_limit_per_minute: number
+}): string {
+  if (p.read_only) return 'read-only (no write scopes granted)'
+  const notes = [
+    p.dry_run ? 'dry-run' : null,
+    p.allow_new_contacts ? 'new contacts allowed' : 'new contacts blocked',
+    p.send_rate_limit_per_minute === 0 ? 'no rate limit' : `${p.send_rate_limit_per_minute}/min`,
+  ].filter(Boolean)
+  return `read + ${p.scopes.join(', ')} (${notes.join(', ')})`
 }
 
 // ---------------------------------------------------------------- doctor
@@ -188,12 +214,14 @@ async function runDoctor(argv: string[]): Promise<void> {
   // Bridge reachability
   report.bridge_url = BRIDGE_URL
   try {
-    const res = await fetch(new URL('/status', BRIDGE_URL), { signal: AbortSignal.timeout(3000) })
-    const body = (await res.json()) as any
+    const { bridgeGet } = await import('../mcp/client.js')
+    const body = await bridgeGet<any>('/status')
     report.bridge_reachable = true
     report.bridge_connection = body.connection
-  } catch {
+    report.bridge_permissions = body.permissions ?? null
+  } catch (err) {
     report.bridge_reachable = false
+    report.bridge_error = err instanceof Error ? err.message : String(err)
   }
 
   // Background service
@@ -247,14 +275,15 @@ async function runDoctor(argv: string[]): Promise<void> {
       ? `Stored: ${(report.stored as any).chats} chats, ${(report.stored as any).messages} messages, ${(report.stored as any).contacts} contacts (${Math.round(Number(report.store_db_bytes ?? 0) / 1e6)} MB)`
       : 'Stored: no database yet',
     `History sync complete: ${report.history_sync_complete ? 'yes' : 'no'}`,
-    `Bridge (${report.bridge_url}): ${report.bridge_reachable ? `reachable, connection=${report.bridge_connection}` : 'not reachable'}`,
+    `Bridge (${report.bridge_url}): ${report.bridge_reachable ? `reachable, connection=${report.bridge_connection}` : `not reachable (${report.bridge_error})`}`,
+    report.bridge_permissions ? `Permissions: ${formatPermissions(report.bridge_permissions as any)}` : null,
     service
       ? `Background service: ${service.installed ? `installed (${service.platform}), ${service.running ? 'running' : 'not running'}` : 'not installed'}`
       : `Background service: ${report.service_error}`,
     mcpClients.length > 0
       ? `MCP clients registered: ${mcpClients.map((c) => `${c.id}${c.commandExists === false ? ' (binary path missing!)' : ''}`).join(', ')}`
       : 'MCP clients registered: none found',
-  ]
+  ].filter(Boolean)
   process.stdout.write(`${lines.join('\n')}\n`)
 }
 
@@ -302,13 +331,34 @@ async function runLogout(argv: string[]): Promise<void> {
 
 // ---------------------------------------------------------------- service
 
+/**
+ * The permission-related env vars, as currently set, so `service install` can
+ * persist them. Only includes what's actually set — an absent WA_ALLOW means
+ * read-only, which is the default anyway.
+ */
+export function permissionEnv(): Record<string, string> {
+  const keys = ['WA_ALLOW', 'WA_ALLOW_NEW_CONTACTS', 'WA_DRY_RUN', 'WA_SEND_RATE_LIMIT']
+  const env: Record<string, string> = {}
+  for (const k of keys) {
+    const v = process.env[k]
+    if (v !== undefined && v !== '') env[k] = v
+  }
+  return env
+}
+
 async function runService(argv: string[]): Promise<void> {
   const [action, ...rest] = argv
   const svc = await import('../service/index.js')
 
   switch (action) {
     case 'install': {
-      const result = await svc.installService({ WA_LOG_LEVEL: process.env.WA_LOG_LEVEL ?? 'info' })
+      // Carry the permission env into the unit/plist: a service that silently
+      // dropped back to read-only on reboot would be worse than one that
+      // never had the scopes at all.
+      const result = await svc.installService({
+        WA_LOG_LEVEL: process.env.WA_LOG_LEVEL ?? 'info',
+        ...permissionEnv(),
+      })
       process.stdout.write(`Installed (${result.platform}): ${result.path}\n`)
       if (result.platform === 'systemd' && result.lingerEnabled === false) {
         process.stdout.write(

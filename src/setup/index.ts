@@ -12,6 +12,8 @@ type SetupArgs = {
   pair?: string
   skipService: boolean
   skipMcp: boolean
+  /** Preselected permission scopes, skipping the interactive question. */
+  allow?: string
 }
 
 function parseArgs(argv: string[]): SetupArgs {
@@ -23,6 +25,10 @@ function parseArgs(argv: string[]): SetupArgs {
     else if (a.startsWith('--pair=')) args.pair = a.slice('--pair='.length).replace(/\D/g, '')
     else if (a === '--skip-service') args.skipService = true
     else if (a === '--skip-mcp') args.skipMcp = true
+    else if (a === '--allow') args.allow = argv[++i] ?? ''
+    else if (a.startsWith('--allow=')) args.allow = a.slice('--allow='.length)
+    else if (a === '--allow-write') args.allow = 'all'
+    else if (a === '--read-only' || a === '--readonly') args.allow = ''
   }
   return args
 }
@@ -41,6 +47,39 @@ function confirm(question: string, autoYes: boolean, defaultYes = true): boolean
   const answer = prompt(`${question} ${suffix}`)?.trim().toLowerCase()
   if (!answer) return defaultYes
   return answer === 'y' || answer === 'yes'
+}
+
+const PERMISSION_CHOICES: Array<{ label: string; allow: string }> = [
+  { label: 'Read only — the assistant can read your chats but never write (recommended to start)', allow: '' },
+  { label: 'Read + send messages, replies, reactions, edits and deletions', allow: 'send' },
+  { label: 'Read + send + files, and chat management (mark read, archive, pin, mute)', allow: 'send,media,chats' },
+  { label: 'Everything, including creating groups and managing participants', allow: 'all' },
+]
+
+/**
+ * Read-only is the default on every path: pressing enter, --yes, and a
+ * non-TTY run all land there. Granting an assistant the ability to message
+ * real people should take a deliberate keystroke.
+ */
+function askPermissions(autoYes: boolean): string {
+  say('\n== What may your AI assistant do? ==')
+  say('Reading your chats is always allowed. Writing is off unless you turn it on here.')
+  say('You can change this later with "whatsapp-agent bridge --allow=..." or WA_ALLOW.\n')
+  PERMISSION_CHOICES.forEach((choice, i) => say(`  ${i + 1}) ${choice.label}`))
+  say('')
+
+  if (autoYes || !process.stdin.isTTY) {
+    say('(non-interactive — defaulting to read only; pass --allow=send,media,chats,groups to change it)')
+    return ''
+  }
+  const answer = prompt('Choose [1-4] (default 1):')?.trim()
+  if (!answer) return ''
+  const index = Number(answer)
+  if (!Number.isInteger(index) || index < 1 || index > PERMISSION_CHOICES.length) {
+    say(`"${answer}" isn't one of the options — staying read only.`)
+    return ''
+  }
+  return PERMISSION_CHOICES[index - 1].allow
 }
 
 export async function runSetup(argv: string[]): Promise<void> {
@@ -79,18 +118,53 @@ export async function runSetup(argv: string[]): Promise<void> {
     process.exit(1)
   }
 
+  // ---------------------------------------------------------- 2. permissions
+  // Asked before anything else happens, and applied by writing WA_ALLOW into
+  // this process's env: the temporary bridge started below, the MCP client
+  // entry we register, the installed service, and the `mcp` child process the
+  // verify step spawns all read it from there, so they can't disagree.
+  const allow = args.allow ?? askPermissions(args.yes)
+  if (allow) {
+    process.env.WA_ALLOW = allow
+  } else {
+    // Actually unset it: assigning undefined would store the string "undefined".
+    // biome-ignore lint/performance/noDelete: process.env needs a real delete
+    delete process.env.WA_ALLOW
+  }
+  const { setPermissions } = await import('../bridge/actions.js')
+  const { describePermissions, resolvePermissions, scopeList } = await import('../shared/permissions.js')
+  const permissions = resolvePermissions()
+  setPermissions(permissions)
+  say(`✓ Permissions: ${describePermissions(permissions)}`)
+
   let bridgeAlreadyRunning = false
   try {
-    const res = await fetch(new URL('/status', BRIDGE_URL), { signal: AbortSignal.timeout(2000) })
-    if (res.ok) {
-      bridgeAlreadyRunning = true
-      say(`✓ A bridge is already running at ${BRIDGE_URL} — reusing it.`)
+    // Through bridgeGet so the bearer token is sent: a bare fetch gets a 401
+    // from any install that already ran setup, which would look like "no
+    // bridge running" and then collide on the port when we start our own.
+    const { bridgeGet } = await import('../mcp/client.js')
+    const running = await bridgeGet<{ permissions?: { scopes: string[] } }>('/status')
+    bridgeAlreadyRunning = true
+    say(`✓ A bridge is already running at ${BRIDGE_URL} — reusing it.`)
+
+    // That bridge was started with whatever scopes it was given, and this
+    // wizard can't change them from here. Say so now, rather than letting the
+    // first write fail with a 403 that looks like a bug.
+    const runningScopes = (running.permissions?.scopes ?? []).join(',')
+    const chosenScopes = scopeList(permissions).join(',')
+    if (runningScopes !== chosenScopes) {
+      say(
+        `⚠ The running bridge is ${runningScopes ? `granting: ${runningScopes}` : 'read-only'}, ` +
+          `which doesn't match what you just chose (${chosenScopes || 'read-only'}).`,
+      )
+      say('  Restart it to pick up the new setting: "whatsapp-agent service restart"')
+      say('  (or stop it and run "whatsapp-agent bridge" yourself with the flags you want).')
     }
   } catch {
     /* nothing listening, we'll start it below */
   }
 
-  // ---------------------------------------------------------- 2. link
+  // ---------------------------------------------------------- 3. link
   const alreadyRegistered = fs.existsSync(path.join(AUTH_DIR, 'creds.json'))
   const server = bridgeAlreadyRunning ? null : (await import('../bridge/server.js')).startServer()
 
@@ -157,7 +231,7 @@ export async function runSetup(argv: string[]): Promise<void> {
     }
   }
 
-  // ---------------------------------------------------------- 3. register MCP clients
+  // ---------------------------------------------------------- 4. register MCP clients
   if (!args.skipMcp) {
     say('\n== Registering with your AI tools ==')
     const { resolveSelfPath } = await import('../service/index.js')
@@ -170,7 +244,13 @@ export async function runSetup(argv: string[]): Promise<void> {
     }
     const { ensureBridgeToken } = await import('../shared/config.js')
     const token = ensureBridgeToken()
-    const entry: McpServerEntry = { command: binPath, args: ['mcp'], env: { WA_BRIDGE_TOKEN: token } }
+    // WA_ALLOW here is what makes the MCP server *advertise* the write tools.
+    // The bridge enforces them regardless; this keeps the tool list honest.
+    const entry: McpServerEntry = {
+      command: binPath,
+      args: ['mcp'],
+      env: { WA_BRIDGE_TOKEN: token, ...(allow ? { WA_ALLOW: allow } : {}) },
+    }
 
     const targets = await listClientTargets()
     const detected = targets.filter((t) => t.detected && t.register)
@@ -215,7 +295,7 @@ export async function runSetup(argv: string[]): Promise<void> {
     }
   }
 
-  // ---------------------------------------------------------- 4. background service
+  // ---------------------------------------------------------- 5. background service
   let serviceInstalled = false
   if (!args.skipService) {
     say('\n== Background service ==')
@@ -231,7 +311,7 @@ export async function runSetup(argv: string[]): Promise<void> {
       )
       if (install) {
         try {
-          const result = await svc.installService({ WA_LOG_LEVEL: 'info' })
+          const result = await svc.installService({ WA_LOG_LEVEL: 'info', ...(allow ? { WA_ALLOW: allow } : {}) })
           serviceInstalled = true
           say(`✓ Installed (${result.platform}): ${result.path}`)
           if (result.platform === 'systemd' && result.lingerEnabled === false) {
@@ -249,7 +329,7 @@ export async function runSetup(argv: string[]): Promise<void> {
     }
   }
 
-  // ---------------------------------------------------------- 5. verify
+  // ---------------------------------------------------------- 6. verify
   say('\n== Verifying ==')
   const verifyResult = await verifyMcpEndToEnd()
   if (verifyResult.ok) {
@@ -258,7 +338,7 @@ export async function runSetup(argv: string[]): Promise<void> {
     say(`✗ Verification failed: ${verifyResult.error}`)
   }
 
-  // ---------------------------------------------------------- 6. cleanup + summary
+  // ---------------------------------------------------------- 7. cleanup + summary
   if (!bridgeAlreadyRunning) {
     stopLinking()
     server?.close()
@@ -266,6 +346,7 @@ export async function runSetup(argv: string[]): Promise<void> {
 
   say('\n== Done ==')
   say(`Data directory: ${DATA_DIR}`)
+  say(`Permissions: ${describePermissions(permissions)}`)
   say(`Bridge API: ${BRIDGE_URL} (port ${BRIDGE_PORT})`)
   if (serviceInstalled) {
     say('The bridge is running in the background and will start automatically from now on.')

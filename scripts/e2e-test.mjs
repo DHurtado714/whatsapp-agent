@@ -189,8 +189,29 @@ check('GET /status reflects the state', () => {
   assert.equal(status.stored.messages, 13)
 })
 
-const postRes = await fetch(base + '/chats', { method: 'POST' })
-check('POST is rejected (read-only bridge)', () => assert.equal(postRes.status, 405))
+const putRes = await fetch(base + '/chats', { method: 'PUT' })
+check('PUT is rejected (only GET and POST exist)', () => assert.equal(putRes.status, 405))
+
+const postJson = (p, body, extraHeaders = {}) =>
+  fetch(base + p, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...extraHeaders },
+    body: JSON.stringify(body),
+  })
+
+const noScopeRes = await postJson('/send', { chat_jid: '15550100001@s.whatsapp.net', text: 'hi' })
+check('POST /send is 403 while no write scope is granted', () => {
+  assert.equal(noScopeRes.status, 403)
+})
+const noScopeBody = await noScopeRes.json()
+check('the 403 names the flag needed to enable it', () => {
+  assert.match(noScopeBody.error, /--allow=send/)
+})
+
+const originRes = await postJson('/send', { chat_jid: 'x', text: 'y' }, { origin: 'https://evil.example.com' })
+check('POST carrying an Origin header is refused (browser-originated)', () => {
+  assert.equal(originRes.status, 403)
+})
 
 const chatsRes = await j('/chats?limit=10&type=group')
 check('GET /chats?type=group filters', () => {
@@ -248,10 +269,12 @@ const transport = new StdioClientTransport({ ...mcpCommand, env: mcpEnv, stderr:
 const client = new Client({ name: 'test', version: '1.0.0' })
 await client.connect(transport)
 
+const perms = await import(path.join(ROOT, 'src/shared/permissions.ts'))
+
 const tools = await client.listTools()
-check('MCP exposes the 4 tools', () => {
+check('MCP exposes exactly the read tools when no scope is granted', () => {
   const names = tools.tools.map((t) => t.name).sort()
-  assert.deepEqual(names, ['get_messages', 'list_chats', 'search_chats', 'whatsapp_status'])
+  assert.deepEqual(names, perms.expectedTools(perms.resolvePermissions()))
 })
 
 check('tools have an inputSchema with descriptions', () => {
@@ -328,7 +351,127 @@ check('tool get_messages ambiguous match asks to disambiguate', () => {
   assert.match(rAmbiguous.text, /matches several chats/)
 })
 
-// bridge down -> actionable error
+// ---------------------------------------------------------------- 4. write mode (dry run)
+// Grant everything on the already-running bridge, with dry-run on so nothing
+// can reach WhatsApp: there's no socket in this process anyway, and dry-run
+// short-circuits before any action would ask for one.
+const actions = await import(path.join(ROOT, 'src/bridge/actions.ts'))
+process.env.WA_ALLOW = 'all'
+process.env.WA_DRY_RUN = 'true'
+actions.setPermissions(perms.resolvePermissions())
+
+const statusWrite = await j('/status')
+check('GET /status reports the granted scopes', () => {
+  assert.deepEqual(statusWrite.permissions.scopes, ['send', 'media', 'chats', 'groups'])
+  assert.equal(statusWrite.permissions.dry_run, true)
+  assert.equal(statusWrite.permissions.allow_new_contacts, false)
+})
+
+const permRes = await j('/permissions')
+check('GET /permissions works', () => assert.equal(permRes.read_only, false))
+
+const sendRes = await postJson('/send', { chat_jid: '15550100001@s.whatsapp.net', text: 'hello there' })
+const sendBody = await sendRes.json()
+check('POST /send in dry-run reports what it would do', () => {
+  assert.equal(sendRes.status, 200)
+  assert.equal(sendBody.dry_run, true)
+  assert.equal(sendBody.would.text, 'hello there')
+})
+
+const strangerRes = await postJson('/send', { chat_jid: '15559999999@s.whatsapp.net', text: 'hi' })
+const strangerBody = await strangerRes.json()
+check('POST /send to a number with no stored chat is refused', () => {
+  assert.equal(strangerRes.status, 403)
+  assert.match(strangerBody.error, /--allow-new-contacts/)
+})
+
+const badJidRes = await postJson('/send', { chat_jid: 'not-a-jid', text: 'hi' })
+check('POST /send with an unusable chat identifier is a 400', () => {
+  assert.equal(badJidRes.status, 400)
+})
+
+const emptyBodyRes = await fetch(base + '/send', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: 'not json',
+})
+check('a malformed JSON body is a 400, not a 500', () => assert.equal(emptyBodyRes.status, 400))
+
+const missingMsgRes = await postJson('/react', { chat_jid: '120363000111@g.us', msg_id: 'NOPE', emoji: '👍' })
+check('reacting to an unknown msg_id is a 404', () => assert.equal(missingMsgRes.status, 404))
+
+const groupUpdateRes = await postJson('/group/update', { group_jid: '120363000111@g.us', subject: 'Renamed' })
+const groupUpdateBody = await groupUpdateRes.json()
+check('POST /group/update in dry-run reports the rename', () => {
+  assert.equal(groupUpdateRes.status, 200)
+  assert.equal(groupUpdateBody.would.subject, 'Renamed')
+})
+
+const notAGroupRes = await postJson('/group/update', { group_jid: '15550100001@s.whatsapp.net', subject: 'x' })
+check('POST /group/update on a non-group is a 400', () => assert.equal(notAGroupRes.status, 400))
+
+// A second MCP process, this time with the write scopes, to confirm the tool
+// list grows and a write tool round-trips end to end.
+const writeEnv = { ...mcpEnv, WA_ALLOW: 'send,chats' }
+const writeTransport = new StdioClientTransport({ ...mcpCommand, env: writeEnv, stderr: 'ignore' })
+const writeClient = new Client({ name: 'test-write', version: '1.0.0' })
+await writeClient.connect(writeTransport)
+
+const writeTools = await writeClient.listTools()
+check('MCP exposes the write tools for the granted scopes only', () => {
+  const names = writeTools.tools.map((t) => t.name).sort()
+  const expected = perms.expectedTools({ scopes: perms.parseScopes('send,chats') })
+  assert.deepEqual(names, expected)
+  assert.ok(!names.includes('send_media'), 'media was not granted')
+  assert.ok(!names.includes('create_group'), 'groups was not granted')
+})
+
+check('write tools are annotated as non-read-only', () => {
+  const sm = writeTools.tools.find((t) => t.name === 'send_message')
+  assert.equal(sm.annotations.readOnlyHint, false)
+  const dm = writeTools.tools.find((t) => t.name === 'delete_message')
+  assert.equal(dm.annotations.destructiveHint, true)
+})
+
+const callWrite = async (name, args = {}) => {
+  const r = await writeClient.callTool({ name, arguments: args })
+  return { text: r.content.map((c) => c.text).join('\n'), isError: Boolean(r.isError) }
+}
+
+const rSend = await callWrite('send_message', { chat: 'Alice Johnson', text: 'ping from the e2e suite' })
+check('tool send_message resolves a name and reports the dry run', () => {
+  assert.ok(!rSend.isError, rSend.text)
+  assert.match(rSend.text, /DRY RUN/)
+  assert.match(rSend.text, /ping from the e2e suite/)
+})
+
+const rAmbiguousSend = await callWrite('send_message', { chat: '1555010000', text: 'nope' })
+check('an ambiguous chat is a hard failure for a write, not a guess', () => {
+  assert.ok(rAmbiguousSend.isError)
+  assert.match(rAmbiguousSend.text, /nothing was sent/)
+})
+
+const rNoSuchSend = await callWrite('send_message', { chat: 'definitely-not-a-chat', text: 'nope' })
+check('sending to an unknown chat name fails without sending', () => {
+  assert.ok(rNoSuchSend.isError)
+  assert.match(rNoSuchSend.text, /Nothing was sent/)
+})
+
+const rOutOfScope = await callWrite('send_typing', { chat: 'Alice Johnson', state: 'composing' })
+check('a chats-scope tool works when chats is granted', () => {
+  assert.ok(!rOutOfScope.isError, rOutOfScope.text)
+})
+
+await writeClient.close()
+
+// Back to read-only, so the bridge-down check below isn't affected by scopes.
+// biome-ignore lint/performance/noDelete: process.env needs a real delete
+delete process.env.WA_ALLOW
+// biome-ignore lint/performance/noDelete: process.env needs a real delete
+delete process.env.WA_DRY_RUN
+actions.setPermissions(perms.resolvePermissions())
+
+// ---------------------------------------------------------------- 5. bridge down -> actionable error
 await new Promise((r) => server.close(r))
 const rDown = await call('list_chats')
 check('with the bridge down the error explains what to do', () => {

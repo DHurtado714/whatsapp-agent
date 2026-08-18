@@ -1,6 +1,8 @@
 import path from 'node:path'
 
-export type VerifyResult = { ok: true; toolCount: number; connection: string } | { ok: false; error: string }
+export type VerifyResult =
+  | { ok: true; toolCount: number; connection: string; tools: string[] }
+  | { ok: false; error: string }
 
 /**
  * Spawns the real `mcp` subcommand as a separate process and drives it with
@@ -26,8 +28,22 @@ export async function verifyMcpEndToEnd(opts?: { command: string; args: string[]
   try {
     await client.connect(transport)
     const tools = await client.listTools()
-    if (tools.tools.length !== 4) {
-      return { ok: false, error: `expected 4 tools, got ${tools.tools.length}` }
+    // Checked by name against the resolved permissions, not by count: the tool
+    // list grows with every write scope granted, so a hardcoded number would
+    // turn "the user enabled sending" into "setup verification failed".
+    const { expectedTools, resolvePermissions } = await import('../shared/permissions.js')
+    const expected = expectedTools(resolvePermissions())
+    const actual = tools.tools.map((t) => t.name).sort()
+    const missing = expected.filter((n) => !actual.includes(n))
+    const unexpected = actual.filter((n) => !expected.includes(n))
+    if (missing.length > 0 || unexpected.length > 0) {
+      return {
+        ok: false,
+        error:
+          `the tool list doesn't match the configured permissions` +
+          `${missing.length ? ` — missing: ${missing.join(', ')}` : ''}` +
+          `${unexpected.length ? ` — unexpected: ${unexpected.join(', ')}` : ''}`,
+      }
     }
     const result = (await client.callTool({ name: 'whatsapp_status', arguments: {} })) as any
     const text = result.content?.map((c: any) => c.text).join('\n') ?? ''
@@ -35,7 +51,7 @@ export async function verifyMcpEndToEnd(opts?: { command: string; args: string[]
       return { ok: false, error: text || 'whatsapp_status returned an error' }
     }
     const match = /Connection:\s*(\S+)/.exec(text)
-    return { ok: true, toolCount: tools.tools.length, connection: match?.[1] ?? 'unknown' }
+    return { ok: true, toolCount: tools.tools.length, connection: match?.[1] ?? 'unknown', tools: actual }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
   } finally {
