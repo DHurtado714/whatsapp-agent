@@ -38,7 +38,13 @@ jobs:
           path: dist/app/*.zip
 
   build-darwin-x64:
-    runs-on: macos-13
+    # macos-13 (the last Intel runner image) has been getting retired/starved
+    # of capacity — jobs sit "queued" forever with no runner assigned. Ad-hoc
+    # codesign doesn't need the host to match the target arch (it just runs
+    # `codesign` on macOS, same reasoning the build-linux job below already
+    # relies on to cross-compile arm64 from an x64 host), so build the x64
+    # binary on the same arm64 runner as the arm64 job instead.
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
