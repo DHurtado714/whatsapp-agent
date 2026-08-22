@@ -5,7 +5,7 @@
 Requires [Bun](https://bun.sh) ≥ 1.3. No Node.js needed.
 
 ```bash
-git clone https://github.com/danielhurtado714/whatsapp-agent.git
+git clone https://github.com/dhurtado714/whatsapp-agent.git
 cd whatsapp-agent
 bun install
 ```

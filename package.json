@@ -7,12 +7,12 @@
   "author": "Daniel Hurtado",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/danielhurtado714/whatsapp-agent.git"
+    "url": "git+https://github.com/dhurtado714/whatsapp-agent.git"
   },
   "bugs": {
-    "url": "https://github.com/danielhurtado714/whatsapp-agent/issues"
+    "url": "https://github.com/dhurtado714/whatsapp-agent/issues"
   },
-  "homepage": "https://github.com/danielhurtado714/whatsapp-agent#readme",
+  "homepage": "https://github.com/dhurtado714/whatsapp-agent#readme",
   "keywords": [
     "whatsapp",
     "mcp",

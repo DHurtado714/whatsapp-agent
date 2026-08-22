@@ -3,7 +3,7 @@
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/danielhurtado714/whatsapp-agent/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dhurtado714/whatsapp-agent/main/install.sh | bash
 whatsapp-agent setup
 ```
 

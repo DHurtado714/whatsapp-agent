@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report security issues privately rather than opening a public issue: use
-[GitHub's private vulnerability reporting](https://github.com/danielhurtado714/whatsapp-agent/security/advisories/new)
+[GitHub's private vulnerability reporting](https://github.com/dhurtado714/whatsapp-agent/security/advisories/new)
 on this repository, or email the maintainer directly if that isn't available.
 
 Please include:

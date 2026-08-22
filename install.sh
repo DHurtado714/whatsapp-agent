@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # whatsapp-agent installer.
 #
-#   curl -fsSL https://raw.githubusercontent.com/danielhurtado714/whatsapp-agent/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/dhurtado714/whatsapp-agent/main/install.sh | bash
 #
 # Downloads the right prebuilt binary for this machine, verifies its
 # checksum, and installs it. Never uses sudo implicitly. Env overrides:
@@ -9,7 +9,7 @@
 #   INSTALL_DIR=/path install there instead of /usr/local/bin or ~/.local/bin
 set -euo pipefail
 
-REPO="danielhurtado714/whatsapp-agent"
+REPO="dhurtado714/whatsapp-agent"
 
 main() {
   local action="install"

@@ -27,7 +27,7 @@ Claude: You and Alice discussed the Q3 budget review on Tuesday — she asked
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/danielhurtado714/whatsapp-agent/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dhurtado714/whatsapp-agent/main/install.sh | bash
 ```
 
 This downloads the right binary for your machine (macOS or Linux, Intel or ARM), verifies
@@ -37,7 +37,7 @@ its checksum, and installs it — no Node, no Bun, no build step required.
 <summary>macOS app (no terminal)</summary>
 
 If you'd rather not touch a terminal at all: download `WhatsApp-Agent-<version>-darwin-<arm64|x64>.zip`
-from the [latest release](https://github.com/danielhurtado714/whatsapp-agent/releases/latest)
+from the [latest release](https://github.com/dhurtado714/whatsapp-agent/releases/latest)
 (arm64 if you have Apple Silicon, x64 if you have an Intel Mac), unzip it, and drag
 **WhatsApp Agent.app** to your Applications folder.
 
@@ -60,7 +60,7 @@ automatically; restart them to pick up the new MCP server.
 <details>
 <summary>Manual download</summary>
 
-Grab the archive for your platform from the [latest release](https://github.com/danielhurtado714/whatsapp-agent/releases/latest), verify it against `SHA256SUMS`, then:
+Grab the archive for your platform from the [latest release](https://github.com/dhurtado714/whatsapp-agent/releases/latest), verify it against `SHA256SUMS`, then:
 
 ```bash
 tar xzf whatsapp-agent-<platform>.tar.gz
@@ -83,7 +83,7 @@ xattr -d com.apple.quarantine /usr/local/bin/whatsapp-agent
 Requires [Bun](https://bun.sh) ≥ 1.3.
 
 ```bash
-git clone https://github.com/danielhurtado714/whatsapp-agent.git
+git clone https://github.com/dhurtado714/whatsapp-agent.git
 cd whatsapp-agent
 bun install
 bun run build
