@@ -41,26 +41,24 @@ jobs:
     # macos-13 (the last Intel runner image) has been getting retired/starved
     # of capacity — jobs sit "queued" forever with no runner assigned. Ad-hoc
     # codesign doesn't need the host to match the target arch (it just runs
-    # `codesign` on macOS, same reasoning the build-linux job below already
-    # relies on to cross-compile arm64 from an x64 host), so build the x64
-    # binary on the same arm64 runner as the arm64 job instead.
+    # `codesign` on macOS), so build+sign the x64 binary on the same arm64
+    # runner as the arm64 job instead. Unlike that job, this one does NOT
+    # execute the binary for a smoke test / e2e run: Rosetta 2 can codesign
+    # fine, but crashes running Bun's own x64 build with "CPU lacks AVX
+    # support" (a real Bun/Rosetta interaction, not specific to this repo) —
+    # even the AVX2-free -baseline target hit the same illegal instruction
+    # here. A real Intel Mac has real AVX, so this is a CI-emulation-only
+    # problem, not a sign the shipped binary is broken. This mirrors
+    # build-linux below, which already only smoke-tests/e2e-tests its native
+    # x64 target and never executes the cross-compiled linux-arm64 one.
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
-      # The arm64 runner can't execute an x64 Mach-O at all without this —
-      # codesigning doesn't need it, but actually running the binary for the
-      # smoke test and e2e step below does.
-      - name: Install Rosetta 2
-        run: softwareupdate --install-rosetta --agree-to-license
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run scripts/build-binaries.ts bun-darwin-x64
-      - name: Smoke test
-        run: dist/bin/whatsapp-agent-darwin-x64 --version
-      - name: e2e against the compiled binary
-        run: WA_TEST_BIN=dist/bin/whatsapp-agent-darwin-x64 bun run test:e2e
       - name: Package
         run: |
           cd dist/bin
