@@ -47,6 +47,11 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      # The arm64 runner can't execute an x64 Mach-O at all without this —
+      # codesigning doesn't need it, but actually running the binary for the
+      # smoke test and e2e step below does.
+      - name: Install Rosetta 2
+        run: softwareupdate --install-rosetta --agree-to-license
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
