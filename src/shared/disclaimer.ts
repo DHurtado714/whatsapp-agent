@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import { DATA_DIR, DISCLAIMER_PATH } from './config.js'
+
 /**
  * Single source of truth for the risk disclaimer. Rendered in the README, the
  * setup wizard's first screen, the CLI --help footer, and the dashboard footer.
@@ -18,3 +21,23 @@ without warranty of any kind.`
 
 export const DISCLAIMER_SHORT =
   'Unofficial WhatsApp client (Baileys). Can get your account banned. Writing is opt-in. Own risk, own account only.'
+
+/** Bump when DISCLAIMER changes materially — accepted versions below this are treated as not-accepted. */
+export const DISCLAIMER_VERSION = 1
+
+type DisclaimerRecord = { version: number; accepted_at: string; source: 'cli' | 'dashboard' }
+
+export function isDisclaimerAccepted(): boolean {
+  try {
+    const record = JSON.parse(fs.readFileSync(DISCLAIMER_PATH, 'utf-8')) as DisclaimerRecord
+    return record.version >= DISCLAIMER_VERSION
+  } catch {
+    return false
+  }
+}
+
+export function acceptDisclaimer(source: 'cli' | 'dashboard'): void {
+  const record: DisclaimerRecord = { version: DISCLAIMER_VERSION, accepted_at: new Date().toISOString(), source }
+  fs.mkdirSync(DATA_DIR, { recursive: true })
+  fs.writeFileSync(DISCLAIMER_PATH, JSON.stringify(record), { mode: 0o600 })
+}

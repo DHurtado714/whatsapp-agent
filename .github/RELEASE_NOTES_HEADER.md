@@ -11,4 +11,11 @@ Or download the archive for your platform below, verify it against `SHA256SUMS`,
 
 Binaries are ~65–115MB (they bundle the Bun runtime) — see the README for why.
 
+**No terminal?** Download `WhatsApp-Agent-<version>-darwin-<arm64|x64>.zip`, unzip, and drag
+**WhatsApp Agent.app** to Applications. It isn't code-signed, so the first launch is
+blocked by Gatekeeper — go to **System Settings → Privacy & Security → Open Anyway**,
+then open it again. After that it runs the bridge in the background and everything else
+(disclaimer, QR code, permissions, MCP client registration) happens from the dashboard
+in your browser.
+
 ---

@@ -72,12 +72,18 @@ export async function tryEnableLinger(): Promise<boolean> {
   return false
 }
 
-export async function installSystemdService(
-  opts: SystemdOptions,
-): Promise<{ unitPath: string; lingerEnabled: boolean }> {
+/** Writes the unit file only — see writeLaunchdPlist for why this doesn't reload/restart the running job. */
+export function writeSystemdUnit(opts: SystemdOptions): { unitPath: string } {
   const unitPath = systemdUnitPath()
   fs.mkdirSync(path.dirname(unitPath), { recursive: true })
   fs.writeFileSync(unitPath, renderSystemdUnit(opts))
+  return { unitPath }
+}
+
+export async function installSystemdService(
+  opts: SystemdOptions,
+): Promise<{ unitPath: string; lingerEnabled: boolean }> {
+  const { unitPath } = writeSystemdUnit(opts)
 
   await run(['systemctl', '--user', 'daemon-reload'])
   const enableResult = await run(['systemctl', '--user', 'enable', '--now', SYSTEMD_UNIT_NAME])

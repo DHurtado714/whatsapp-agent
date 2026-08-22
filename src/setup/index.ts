@@ -2,9 +2,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import qrcode from 'qrcode-terminal'
-import { DISCLAIMER } from '../shared/disclaimer.js'
-import { type McpServerEntry, listClientTargets, renderConfigSnippet } from './clients.js'
+import { DISCLAIMER, acceptDisclaimer, isDisclaimerAccepted } from '../shared/disclaimer.js'
+import { listClientTargets, renderConfigSnippet } from './clients.js'
 import { linkAccount, stopLinking, waitForHistorySync } from './link.js'
+import { buildMcpEntry, registerAllClients } from './register.js'
 import { verifyMcpEndToEnd } from './verify.js'
 
 type SetupArgs = {
@@ -86,17 +87,22 @@ export async function runSetup(argv: string[]): Promise<void> {
   const args = parseArgs(argv)
 
   // ---------------------------------------------------------- 0. disclaimer
-  say(`\n${DISCLAIMER}\n`)
-  if (!args.yes) {
-    if (!process.stdin.isTTY) {
-      say('Not a TTY — pass --yes to accept the above and run non-interactively.')
-      process.exit(1)
+  if (isDisclaimerAccepted()) {
+    say('(disclaimer already accepted — skipping)')
+  } else {
+    say(`\n${DISCLAIMER}\n`)
+    if (!args.yes) {
+      if (!process.stdin.isTTY) {
+        say('Not a TTY — pass --yes to accept the above and run non-interactively.')
+        process.exit(1)
+      }
+      const answer = prompt('Type "yes" to continue:')
+      if (answer?.trim().toLowerCase() !== 'yes') {
+        say('Aborted.')
+        return
+      }
     }
-    const answer = prompt('Type "yes" to continue:')
-    if (answer?.trim().toLowerCase() !== 'yes') {
-      say('Aborted.')
-      return
-    }
+    acceptDisclaimer('cli')
   }
 
   const { DATA_DIR, AUTH_DIR, BRIDGE_URL, BRIDGE_PORT } = await import('../shared/config.js')
@@ -244,54 +250,41 @@ export async function runSetup(argv: string[]): Promise<void> {
     }
     const { ensureBridgeToken } = await import('../shared/config.js')
     const token = ensureBridgeToken()
-    // WA_ALLOW here is what makes the MCP server *advertise* the write tools.
-    // The bridge enforces them regardless; this keeps the tool list honest.
-    const entry: McpServerEntry = {
-      command: binPath,
-      args: ['mcp'],
-      env: { WA_BRIDGE_TOKEN: token, ...(allow ? { WA_ALLOW: allow } : {}) },
-    }
+    const entry = buildMcpEntry({ binPath, token, allow })
 
-    const targets = await listClientTargets()
-    const detected = targets.filter((t) => t.detected && t.register)
-    if (detected.length === 0) {
+    const { results, targets } = await registerAllClients(entry, {
+      confirmTarget: (target) =>
+        confirm(`Register with ${target.label}${target.configPath ? ` (${target.configPath})` : ''}?`, args.yes),
+      confirmOverwrite: () => confirm('  already has a different whatsapp MCP entry. Overwrite it?', args.yes, false),
+    })
+
+    if (targets.every((t) => !t.detected)) {
       say('No supported AI client was auto-detected. Add this to its MCP config manually:\n')
       say(renderConfigSnippet(entry))
     }
-    for (const target of detected) {
-      const proceed = confirm(
-        `Register with ${target.label}${target.configPath ? ` (${target.configPath})` : ''}?`,
-        args.yes,
-      )
-      if (!proceed) {
-        say(`  skipped ${target.label}`)
+    for (const result of results) {
+      if (!result.detected) {
+        say(`  (${result.label} not detected — skipping)`)
         continue
       }
-      const result = await target.register!(entry, {
-        confirmChange: (current, desired) =>
-          confirm(`  ${target.label} already has a different whatsapp MCP entry. Overwrite it?`, args.yes, false),
-      })
       switch (result.status) {
         case 'created':
-          say(`  ✓ ${target.label}: created config and registered whatsapp`)
+          say(`  ✓ ${result.label}: created config and registered whatsapp`)
           break
         case 'updated':
-          say(`  ✓ ${target.label}: registered whatsapp (backup: ${result.backupPath})`)
+          say(`  ✓ ${result.label}: registered whatsapp (backup: ${result.backupPath})`)
           break
         case 'already-configured':
-          say(`  ✓ ${target.label}: already configured`)
+          say(`  ✓ ${result.label}: already configured`)
           break
         case 'declined':
-          say(`  skipped ${target.label} (kept existing entry)`)
+          say(`  skipped ${result.label}`)
           break
         case 'parse-error':
-          say(`  ✗ ${target.label}: ${result.error} — leaving it untouched, register manually:`)
+          say(`  ✗ ${result.label}: ${result.error} — leaving it untouched, register manually:`)
           say(renderConfigSnippet(entry))
           break
       }
-    }
-    for (const target of targets.filter((t) => !t.detected)) {
-      say(`  (${target.label} not detected — skipping)`)
     }
   }
 

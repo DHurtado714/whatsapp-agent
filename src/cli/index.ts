@@ -33,6 +33,7 @@ Commands:
                        Remove the linked WhatsApp session (forces a fresh QR
                        next time). --purge also deletes all stored messages.
   doctor [--json]     Print diagnostic info, useful for bug reports.
+  app                 Used by the macOS app bundle; you don't normally run this.
 
   -h, --help          Show this help.
   -v, --version        Print the version.
@@ -97,6 +98,13 @@ async function main(): Promise<void> {
     case 'service':
       await runService(rest)
       return
+
+    case 'app': {
+      // Used by the macOS app bundle's launcher script; you don't normally run this yourself.
+      const { runApp } = await import('../app/index.js')
+      await runApp()
+      return
+    }
 
     default:
       process.stderr.write(`Unknown command: ${command}\n\n${HELP}`)
@@ -236,24 +244,8 @@ async function runDoctor(argv: string[]): Promise<void> {
   // exists on disk — catches "I moved/reinstalled the binary and forgot to
   // re-run setup" as a clear diagnosis instead of a silent tool failure.
   try {
-    const { listClientTargets } = await import('../setup/clients.js')
-    const targets = await listClientTargets()
-    const clients: Array<{ id: string; registered: boolean; commandExists?: boolean }> = []
-    for (const t of targets) {
-      if (!t.configPath) continue
-      const file = Bun.file(t.configPath)
-      if (!(await file.exists())) continue
-      try {
-        const cfg = JSON.parse(await file.text())
-        const entry = cfg?.mcpServers?.whatsapp
-        if (entry?.command) {
-          clients.push({ id: t.id, registered: true, commandExists: fs.existsSync(entry.command) })
-        }
-      } catch {
-        /* unparseable config — not our concern here, jsonConfig.ts refuses to touch it */
-      }
-    }
-    report.mcp_clients = clients
+    const { registeredClients } = await import('../setup/clients.js')
+    report.mcp_clients = await registeredClients()
   } catch (err) {
     report.mcp_clients_error = err instanceof Error ? err.message : String(err)
   }

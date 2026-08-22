@@ -34,6 +34,30 @@ This downloads the right binary for your machine (macOS or Linux, Intel or ARM),
 its checksum, and installs it — no Node, no Bun, no build step required.
 
 <details>
+<summary>macOS app (no terminal)</summary>
+
+If you'd rather not touch a terminal at all: download `WhatsApp-Agent-<version>-darwin-<arm64|x64>.zip`
+from the [latest release](https://github.com/danielhurtado714/whatsapp-agent/releases/latest)
+(arm64 if you have Apple Silicon, x64 if you have an Intel Mac), unzip it, and drag
+**WhatsApp Agent.app** to your Applications folder.
+
+It isn't code-signed by Apple, so the first launch will be blocked:
+
+1. Double-click the app. macOS says it "cannot be opened because Apple cannot check it for
+   malicious software." Click **Cancel** — not **Move to Trash**.
+2. Open **System Settings → Privacy & Security**, scroll to *Security*, and click
+   **Open Anyway** next to the WhatsApp Agent entry. Confirm with Touch ID or your password.
+3. Double-click the app again — this time it opens.
+
+That's it after the first time. The app starts the bridge as a background service and
+opens the dashboard in your browser, where you'll accept the disclaimer, scan the QR
+code, and (optionally) turn on write permissions — all from the page, no terminal
+involved. It also registers itself with Claude Desktop, Cursor, and Claude Code
+automatically; restart them to pick up the new MCP server.
+
+</details>
+
+<details>
 <summary>Manual download</summary>
 
 Grab the archive for your platform from the [latest release](https://github.com/danielhurtado714/whatsapp-agent/releases/latest), verify it against `SHA256SUMS`, then:

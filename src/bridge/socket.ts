@@ -55,6 +55,8 @@ export type BridgeState = {
   registered: boolean
   me: { id: string; name?: string } | null
   qr: string | null
+  /** Bumped only when `qr` actually changes — lets HTTP clients cache-bust /qr.svg without polling the raw string. */
+  qrVersion: number
   pairingCode: string | null
   lastError: string | null
   historySync: { received: number; complete: boolean; progress: number | null }
@@ -67,6 +69,7 @@ export const state: BridgeState = {
   registered: false,
   me: null,
   qr: null,
+  qrVersion: 0,
   pairingCode: null,
   lastError: null,
   historySync: { received: 0, complete: false, progress: null },
@@ -146,6 +149,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       const update = events['connection.update']
 
       if (update.qr) {
+        if (update.qr !== state.qr) state.qrVersion++
         state.qr = update.qr
         if (opts.pairWithNumber && !pairingRequested && !authState.creds.registered) {
           pairingRequested = true

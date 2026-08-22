@@ -20,6 +20,7 @@ export const BRIDGE_PORT = Number(process.env.WA_BRIDGE_PORT ?? 8788)
 export const BRIDGE_URL = process.env.WA_BRIDGE_URL ?? `http://${BRIDGE_HOST}:${BRIDGE_PORT}`
 
 export const TOKEN_PATH = path.join(DATA_DIR, 'token')
+export const DISCLAIMER_PATH = path.join(DATA_DIR, 'disclaimer-accepted.json')
 
 function readTokenFile(): string {
   try {

@@ -91,11 +91,24 @@ async function run(cmd: string[]): Promise<{ code: number; stdout: string; stder
   return { code, stdout, stderr }
 }
 
-export async function installLaunchdService(opts: LaunchdOptions): Promise<{ plistPath: string }> {
+/**
+ * Writes the plist without touching the running job (no bootout/bootstrap).
+ * Used to persist a permission change made from the dashboard: the change
+ * already applies live via setPermissions() in the process answering that
+ * request, so reloading the job here would just kill it mid-response for no
+ * benefit — the new env takes effect on the next real reload instead
+ * (reboot, "service restart", or the app's own launch-time reconcile).
+ */
+export function writeLaunchdPlist(opts: LaunchdOptions): { plistPath: string } {
   const plistPath = launchdPlistPath()
   fs.mkdirSync(path.dirname(plistPath), { recursive: true })
   fs.mkdirSync(path.dirname(opts.logPath), { recursive: true })
   fs.writeFileSync(plistPath, renderLaunchdPlist(opts))
+  return { plistPath }
+}
+
+export async function installLaunchdService(opts: LaunchdOptions): Promise<{ plistPath: string }> {
+  const { plistPath } = writeLaunchdPlist(opts)
 
   // bootstrap fails with "Load failed: 5: Input/output error" if the label
   // is already loaded — always bootout first, ignoring failure (it isn't

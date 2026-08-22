@@ -1,7 +1,8 @@
 import http from 'node:http'
 import { BRIDGE_HOST, BRIDGE_PORT, getBridgeToken } from '../shared/config.js'
 import { counts, getChat, getMessages, listChats, searchChats } from '../shared/db.js'
-import { permissionsPayload } from '../shared/permissions.js'
+import { acceptDisclaimer, isDisclaimerAccepted } from '../shared/disclaimer.js'
+import { PermissionConfigError, permissionsPayload, resolvePermissions } from '../shared/permissions.js'
 import {
   ActionError,
   createGroup,
@@ -13,11 +14,13 @@ import {
   sendMedia,
   sendText,
   sendTyping,
+  setPermissions,
   updateChat,
   updateGroup,
   updateGroupParticipants,
 } from './actions.js'
 import { DASHBOARD_HTML } from './dashboard.js'
+import { renderQrSvg } from './qr.js'
 import { logger, state } from './socket.js'
 
 /** Anything bigger than this is a bug or an attack, not a legitimate control-plane call. */
@@ -91,9 +94,12 @@ export function startServer(opts: { port?: number; host?: string } = {}): http.S
       // directly: there the Host header is legitimately ours. For a GET that
       // didn't matter (CORS still hides the response from the page), but a
       // POST has already happened by the time the response is discarded, so
-      // side effects would land. Browsers always attach Origin to a
-      // cross-origin POST; our own clients never send it at all.
-      if (method === 'POST' && req.headers.origin) {
+      // side effects would land. `Origin` is a forbidden header name — page
+      // JS cannot set or spoof it — so comparing it against our own (already
+      // Host-validated) origin is a real same-origin check, not just
+      // "no Origin at all": the dashboard we serve can POST to itself, while
+      // any other origin (including DNS-rebound ones) still gets rejected.
+      if (method === 'POST' && req.headers.origin && req.headers.origin !== `http://${rawHost}`) {
         return send(403, { error: 'forbidden: cross-origin requests are not accepted' })
       }
 
@@ -114,6 +120,19 @@ export function startServer(opts: { port?: number; host?: string } = {}): http.S
       }
 
       if (method === 'POST') {
+        // Control-plane, not a WhatsApp write — deliberately outside
+        // WRITE_ROUTES, which is documented as scope-gated pass-throughs to
+        // actions.ts.
+        if (url.pathname === '/disclaimer/accept') {
+          acceptDisclaimer('dashboard')
+          return send(200, { accepted: true })
+        }
+        if (url.pathname === '/permissions') {
+          return readJsonBody(req)
+            .then((body) => applyPermissionScopes(body))
+            .then((result) => send(200, result))
+            .catch(fail)
+        }
         const handler = WRITE_ROUTES[url.pathname]
         if (!handler) return send(404, { error: `unknown route: POST ${url.pathname}` })
         return readJsonBody(req)
@@ -138,6 +157,7 @@ export function startServer(opts: { port?: number; host?: string } = {}): http.S
             registered: state.registered,
             me: state.me,
             awaiting_qr: Boolean(state.qr),
+            qr_version: state.qrVersion,
             pairing_code: state.pairingCode,
             last_error: state.lastError,
             connected_at: state.connectedAt,
@@ -145,10 +165,29 @@ export function startServer(opts: { port?: number; host?: string } = {}): http.S
             history_sync: state.historySync,
             stored: counts(),
             permissions: permissionsPayload(getPermissions()),
+            disclaimer_accepted: isDisclaimerAccepted(),
           })
 
         case '/permissions':
           return send(200, permissionsPayload(getPermissions()))
+
+        case '/clients':
+          return import('../setup/clients.js')
+            .then(({ registeredClients }) => registeredClients())
+            .then((clients) => send(200, { clients }))
+            .catch(fail)
+
+        case '/qr.svg': {
+          if (!isDisclaimerAccepted()) return send(403, { error: 'accept the disclaimer before linking' })
+          if (!state.qr) return send(404, { error: 'no QR available' })
+          const svg = Buffer.from(renderQrSvg(state.qr), 'utf-8')
+          res.writeHead(200, {
+            'content-type': 'image/svg+xml; charset=utf-8',
+            'cache-control': 'no-store',
+            'content-length': svg.length,
+          })
+          return res.end(svg)
+        }
 
         case '/chats':
           return send(200, {
@@ -224,6 +263,38 @@ const WRITE_ROUTES: Record<string, Handler> = {
   '/group/create': (b) => createGroup(b),
   '/group/participants': (b) => updateGroupParticipants(b),
   '/group/update': (b) => updateGroup(b),
+}
+
+/**
+ * Applies a scope change from the dashboard's permission toggles: live for
+ * the process answering this request (setPermissions), and best-effort
+ * persisted to the installed service definition (updateServiceEnv) so it
+ * survives the next real reload. Gated behind the disclaimer, same as
+ * /qr.svg — granting write scopes is exactly the kind of thing that
+ * shouldn't be reachable before the user has seen the ban-risk warning.
+ */
+async function applyPermissionScopes(body: any): Promise<ReturnType<typeof permissionsPayload>> {
+  if (!isDisclaimerAccepted()) throw new ActionError(403, 'accept the disclaimer before changing permissions')
+  if (!Array.isArray(body?.scopes) || !body.scopes.every((s: unknown) => typeof s === 'string')) {
+    throw new ActionError(400, 'request body must be { scopes: string[] }')
+  }
+  const allow = body.scopes.join(',')
+  let permissions: ReturnType<typeof resolvePermissions>
+  try {
+    permissions = resolvePermissions({ allow })
+  } catch (err) {
+    if (err instanceof PermissionConfigError) throw new ActionError(400, err.message)
+    throw err
+  }
+  setPermissions(permissions)
+
+  const { updateServiceEnv } = await import('../service/index.js')
+  await updateServiceEnv({
+    WA_LOG_LEVEL: process.env.WA_LOG_LEVEL ?? 'info',
+    ...(allow ? { WA_ALLOW: allow } : {}),
+  }).catch((err) => logger.warn({ err }, 'permission change applied live but could not be persisted to the service'))
+
+  return permissionsPayload(permissions)
 }
 
 function readJsonBody(req: http.IncomingMessage): Promise<any> {

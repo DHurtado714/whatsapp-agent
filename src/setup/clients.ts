@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { type MergeOptions, type MergeResult, ensureJsonKey } from './jsonConfig.js'
@@ -148,4 +149,32 @@ export async function listClientTargets(): Promise<ClientTarget[]> {
 /** Universal fallback for any MCP client not in the list above. */
 export function renderConfigSnippet(entry: McpServerEntry): string {
   return JSON.stringify({ mcpServers: { whatsapp: entry } }, null, 2)
+}
+
+export type RegisteredClient = { id: string; label: string; registered: boolean; commandExists?: boolean }
+
+/**
+ * Which MCP clients have a whatsapp entry, and whether its command still
+ * exists on disk — catches "I moved/reinstalled the binary and forgot to
+ * re-run setup" as a clear diagnosis instead of a silent tool failure.
+ * Shared by `whatsapp-agent doctor` and the dashboard's GET /clients.
+ */
+export async function registeredClients(): Promise<RegisteredClient[]> {
+  const targets = await listClientTargets()
+  const clients: RegisteredClient[] = []
+  for (const t of targets) {
+    if (!t.configPath) continue
+    const file = Bun.file(t.configPath)
+    if (!(await file.exists())) continue
+    try {
+      const cfg = JSON.parse(await file.text())
+      const entry = cfg?.mcpServers?.whatsapp
+      if (entry?.command) {
+        clients.push({ id: t.id, label: t.label, registered: true, commandExists: fs.existsSync(entry.command) })
+      }
+    } catch {
+      /* unparseable config — not our concern here, jsonConfig.ts refuses to touch it */
+    }
+  }
+  return clients
 }

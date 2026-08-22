@@ -14,9 +14,9 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-type TargetDef = { target: string; os: string; arch: string; darwin?: boolean }
+export type TargetDef = { target: string; os: string; arch: string; darwin?: boolean }
 
-const ALL_TARGETS: TargetDef[] = [
+export const ALL_TARGETS: TargetDef[] = [
   { target: 'bun-darwin-arm64', os: 'darwin', arch: 'arm64', darwin: true },
   { target: 'bun-darwin-x64', os: 'darwin', arch: 'x64', darwin: true },
   { target: 'bun-linux-x64', os: 'linux', arch: 'x64' },
@@ -42,7 +42,7 @@ async function run(cmd: string[]): Promise<{ code: number; stdout: string; stder
   return { code, stdout, stderr }
 }
 
-async function buildOne(def: TargetDef, outDir: string): Promise<string> {
+export async function buildOne(def: TargetDef, outDir: string): Promise<string> {
   const outfile = path.join(outDir, `whatsapp-agent-${def.os}-${def.arch}`)
   console.log(`\n== ${def.target} -> ${outfile} ==`)
 
@@ -106,7 +106,9 @@ async function main(): Promise<void> {
   console.log(`\nBuilt ${built.length} binaries in ${outDir}`)
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err))
-  process.exit(1)
-})
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  })
+}

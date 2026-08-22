@@ -51,6 +51,10 @@ jobs:
           BIN=$(ls dist/bin/whatsapp-agent-*)
           WA_TEST_BIN="$BIN" bun run test:e2e
 
+      - name: Smoke-build the macOS app bundle
+        if: matrix.os == 'macos-14'
+        run: bun run scripts/build-macos-app.ts --arch=arm64
+
   install-script:
     # install.sh rots silently if nobody re-runs it — smoke test it against
     # this branch's own copy in a clean container. Doesn't hit a real

@@ -8,6 +8,7 @@ import {
   startLaunchdService,
   stopLaunchdService,
   uninstallLaunchdService,
+  writeLaunchdPlist,
 } from './launchd.js'
 import {
   hasSystemd,
@@ -17,6 +18,7 @@ import {
   stopSystemdService,
   systemdServiceStatus,
   uninstallSystemdService,
+  writeSystemdUnit,
 } from './systemd.js'
 
 export type Platform = 'launchd' | 'systemd' | 'unsupported'
@@ -62,9 +64,12 @@ export type ServiceInstallResult = {
   lingerEnabled?: boolean
 }
 
-export async function installService(env: Record<string, string> = {}): Promise<ServiceInstallResult> {
+export async function installService(
+  env: Record<string, string> = {},
+  opts: { binPath?: string } = {},
+): Promise<ServiceInstallResult> {
   const platform = detectPlatform()
-  const binPath = resolveSelfPath()
+  const binPath = opts.binPath ?? resolveSelfPath()
   if (platform === 'launchd') {
     const { plistPath } = await installLaunchdService({ binPath, logPath: bridgeLogPath(), env })
     return { platform, path: plistPath }
@@ -78,6 +83,32 @@ export async function installService(env: Record<string, string> = {}): Promise<
       'Run "whatsapp-agent bridge" in a terminal you keep open, or use your own ' +
       'process manager (nohup, tmux, a cron @reboot line, ...).',
   )
+}
+
+/**
+ * Persists an env change (e.g. a new WA_ALLOW from the dashboard's
+ * permission toggles) to the installed service definition WITHOUT
+ * reloading/restarting it — the caller is expected to have already applied
+ * the change live via setPermissions(), so a reload here would just kill
+ * the process answering the request for no benefit. No-ops if no service is
+ * installed (nothing to persist to yet).
+ */
+export async function updateServiceEnv(env: Record<string, string>): Promise<{ updated: boolean }> {
+  const platform = detectPlatform()
+  const binPath = resolveSelfPath()
+  if (platform === 'launchd') {
+    const status = await launchdServiceStatus()
+    if (!status.installed) return { updated: false }
+    writeLaunchdPlist({ binPath, logPath: bridgeLogPath(), env })
+    return { updated: true }
+  }
+  if (platform === 'systemd') {
+    const status = await systemdServiceStatus()
+    if (!status.installed) return { updated: false }
+    writeSystemdUnit({ binPath, env })
+    return { updated: true }
+  }
+  return { updated: false }
 }
 
 export async function uninstallService(): Promise<void> {

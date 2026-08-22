@@ -30,6 +30,12 @@ jobs:
         with:
           name: whatsapp-agent-darwin-arm64
           path: dist/bin/whatsapp-agent-darwin-arm64.tar.gz
+      - name: Build the no-terminal macOS app bundle
+        run: bun run scripts/build-macos-app.ts --arch=arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-agent-app-darwin-arm64
+          path: dist/app/*.zip
 
   build-darwin-x64:
     runs-on: macos-13
@@ -52,6 +58,12 @@ jobs:
         with:
           name: whatsapp-agent-darwin-x64
           path: dist/bin/whatsapp-agent-darwin-x64.tar.gz
+      - name: Build the no-terminal macOS app bundle
+        run: bun run scripts/build-macos-app.ts --arch=x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whatsapp-agent-app-darwin-x64
+          path: dist/app/*.zip
 
   build-linux:
     # All three Linux variants cross-compile fine from one x64 runner — only
@@ -94,7 +106,7 @@ jobs:
         working-directory: artifacts
         run: |
           ls -la
-          sha256sum *.tar.gz > SHA256SUMS
+          sha256sum *.tar.gz *.zip > SHA256SUMS
 
       - name: Create release
         env:
@@ -104,4 +116,4 @@ jobs:
           gh release create "$TAG" \
             --title "$TAG" \
             --notes-file .github/RELEASE_NOTES_HEADER.md \
-            artifacts/*.tar.gz artifacts/SHA256SUMS
+            artifacts/*.tar.gz artifacts/*.zip artifacts/SHA256SUMS

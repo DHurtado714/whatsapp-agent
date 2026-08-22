@@ -1,3 +1,9 @@
+import { DISCLAIMER } from '../shared/disclaimer.js'
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
 // Health dashboard, served by the bridge itself on GET /.
 // No build step: a single string, no external dependencies.
 export const DASHBOARD_HTML = `<!doctype html>
@@ -49,6 +55,11 @@ export const DASHBOARD_HTML = `<!doctype html>
     align-items: center;
     gap: 0.6rem;
   }
+  h2 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 0 0 0.75rem;
+  }
   .dot {
     width: 9px; height: 9px; border-radius: 50%;
     background: var(--muted);
@@ -78,6 +89,38 @@ export const DASHBOARD_HTML = `<!doctype html>
     font-size: 1.1rem;
     font-weight: 700;
     letter-spacing: 0.08em;
+  }
+  .banner pre {
+    white-space: pre-wrap;
+    font-family: inherit;
+    font-size: 0.85rem;
+    margin: 0 0 0.9rem;
+  }
+  .banner button {
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.5rem 0.9rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--green);
+    color: #fff;
+    cursor: pointer;
+  }
+  #qrPanel {
+    text-align: center;
+    margin-bottom: 1.25rem;
+  }
+  #qrPanel img {
+    background: #fff;
+    padding: 12px;
+    border-radius: 8px;
+    max-width: 240px;
+    width: 100%;
+  }
+  #qrPanel .sub {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 0.5rem;
   }
   .grid {
     display: grid;
@@ -109,22 +152,77 @@ export const DASHBOARD_HTML = `<!doctype html>
     color: var(--muted);
     margin-top: 0.15rem;
   }
+  section.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.1rem 1.2rem;
+    margin-top: 1.25rem;
+  }
+  .scope-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.4rem 0;
+  }
+  .scope-row label {
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  .scope-row .help {
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-weight: 400;
+    display: block;
+  }
+  .scope-row input { margin-top: 0.2rem; }
+  #applyPermissions {
+    margin-top: 0.6rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.5rem 0.9rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text);
+    cursor: pointer;
+  }
+  #permissionsNote {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 0.5rem;
+  }
+  #clientsList {
+    font-size: 0.9rem;
+  }
   footer {
     margin-top: 1.5rem;
     font-size: 0.75rem;
     color: var(--muted);
   }
   .stale { opacity: 0.45; }
+  .hidden { display: none; }
 </style>
 </head>
 <body>
 <main>
   <h1><span id="dot" class="dot"></span> whatsapp-agent <span id="badge" class="badge"></span></h1>
 
-  <div id="pairing" class="banner info" style="display:none">
+  <div id="disclaimerPanel" class="banner info hidden">
+    <pre>${escapeHtml(DISCLAIMER)}</pre>
+    <button id="acceptBtn" type="button">I understand — continue</button>
+  </div>
+
+  <div id="qrPanel" class="hidden">
+    <h2>Scan this from WhatsApp → Settings → Linked devices → Link a device</h2>
+    <img id="qrImg" alt="WhatsApp linking QR code">
+    <div class="sub">Refreshes automatically — no need to reload this page.</div>
+  </div>
+
+  <div id="pairing" class="banner info hidden">
     Pairing code: <code id="pairingCode"></code>
   </div>
-  <div id="errorBanner" class="banner" style="display:none"></div>
+  <div id="errorBanner" class="banner hidden"></div>
 
   <div class="grid">
     <div class="cell">
@@ -158,12 +256,41 @@ export const DASHBOARD_HTML = `<!doctype html>
     </div>
   </div>
 
+  <section id="permissionsSection" class="card hidden">
+    <h2>What may your AI assistant do?</h2>
+    <div class="scope-row">
+      <input type="checkbox" id="scope-send" value="send">
+      <label for="scope-send">Send<span class="help">Send, reply, react to, edit and delete messages</span></label>
+    </div>
+    <div class="scope-row">
+      <input type="checkbox" id="scope-media" value="media">
+      <label for="scope-media">Media<span class="help">Send images, video, audio and documents</span></label>
+    </div>
+    <div class="scope-row">
+      <input type="checkbox" id="scope-chats" value="chats">
+      <label for="scope-chats">Chats<span class="help">Mark read, archive, pin, mute, typing indicators</span></label>
+    </div>
+    <div class="scope-row">
+      <input type="checkbox" id="scope-groups" value="groups">
+      <label for="scope-groups">Groups<span class="help">Create groups, manage participants, rename, leave</span></label>
+    </div>
+    <button id="applyPermissions" type="button">Apply</button>
+    <div id="permissionsNote">Reading is always allowed. Automated sending is exactly what anti-spam systems look for — grant only what you need.</div>
+  </section>
+
+  <section id="clientsSection" class="card hidden">
+    <h2>AI tools</h2>
+    <div id="clientsList">—</div>
+  </section>
+
   <footer id="footer">loading...</footer>
 </main>
 
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
+  var token = new URLSearchParams(location.search).get('token');
+  var authHeaders = function () { return token ? { Authorization: 'Bearer ' + token } : {}; };
 
   function fmtDuration(ms) {
     if (ms < 0) ms = 0;
@@ -178,6 +305,10 @@ export const DASHBOARD_HTML = `<!doctype html>
   }
 
   var CONN_LABEL = { open: 'connected', connecting: 'connecting', close: 'disconnected' };
+  var SCOPES = ['send', 'media', 'chats', 'groups'];
+  var lastQrVersion = null;
+  var permissionsDirty = false;
+  var clientsLoaded = false;
 
   function render(data) {
     var dot = $('dot'), badge = $('badge');
@@ -209,44 +340,119 @@ export const DASHBOARD_HTML = `<!doctype html>
 
     var pairing = $('pairing');
     if (data.pairing_code) {
-      pairing.style.display = '';
+      pairing.classList.remove('hidden');
       $('pairingCode').textContent = data.pairing_code;
     } else {
-      pairing.style.display = 'none';
+      pairing.classList.add('hidden');
     }
 
     var errBox = $('errorBanner');
     if (data.last_error && data.connection !== 'open') {
-      errBox.style.display = '';
+      errBox.classList.remove('hidden');
       errBox.textContent = 'Last error: ' + data.last_error;
     } else {
-      errBox.style.display = 'none';
+      errBox.classList.add('hidden');
+    }
+
+    // Disclaimer gates linking and permissions — same as the server side.
+    $('disclaimerPanel').classList.toggle('hidden', Boolean(data.disclaimer_accepted));
+    $('qrPanel').classList.toggle('hidden', !(data.disclaimer_accepted && data.awaiting_qr));
+    $('permissionsSection').classList.toggle('hidden', !data.disclaimer_accepted);
+
+    if (data.disclaimer_accepted && data.awaiting_qr && data.qr_version !== lastQrVersion) {
+      lastQrVersion = data.qr_version;
+      var qrUrl = '/qr.svg?v=' + data.qr_version + (token ? '&token=' + encodeURIComponent(token) : '');
+      $('qrImg').src = qrUrl;
+    }
+
+    if (data.permissions && !permissionsDirty) {
+      var scopes = data.permissions.scopes || [];
+      SCOPES.forEach(function (s) {
+        $('scope-' + s).checked = scopes.indexOf(s) !== -1;
+      });
+    }
+
+    if (data.disclaimer_accepted && !clientsLoaded) {
+      clientsLoaded = true;
+      loadClients();
     }
 
     $('footer').textContent = 'updated ' + new Date().toLocaleTimeString();
     document.body.classList.remove('stale');
+
+    return data;
   }
 
+  function loadClients() {
+    fetch('/clients', { headers: authHeaders(), cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var clients = data.clients || [];
+        var section = $('clientsSection');
+        if (clients.length === 0) {
+          section.classList.add('hidden');
+          return;
+        }
+        section.classList.remove('hidden');
+        var names = clients.map(function (c) {
+          return c.label + (c.commandExists === false ? ' (binary path missing — reinstall)' : '');
+        });
+        $('clientsList').textContent = names.join(', ') + '. Restart them to pick up the change.';
+      })
+      .catch(function () { /* not critical — leave the section as-is */ });
+  }
+
+  $('acceptBtn').addEventListener('click', function () {
+    fetch('/disclaimer/accept', { method: 'POST', headers: authHeaders() }).then(poll);
+  });
+
+  $('applyPermissions').addEventListener('click', function () {
+    var scopes = SCOPES.filter(function (s) { return $('scope-' + s).checked; });
+    if (scopes.length > 0 && !confirm(
+      'Grant ' + scopes.join(', ') + '? Automated sending can get a WhatsApp account banned or restricted.'
+    )) {
+      return;
+    }
+    permissionsDirty = true;
+    fetch('/permissions', {
+      method: 'POST',
+      headers: Object.assign({ 'content-type': 'application/json' }, authHeaders()),
+      body: JSON.stringify({ scopes: scopes }),
+    })
+      .then(function () {
+        permissionsDirty = false;
+        poll();
+      })
+      .catch(function () { permissionsDirty = false; });
+  });
+
   function poll() {
-    var token = new URLSearchParams(location.search).get('token');
-    var opts = { cache: 'no-store' };
-    if (token) opts.headers = { Authorization: 'Bearer ' + token };
-    fetch('/status', opts)
+    var opts = { cache: 'no-store', headers: authHeaders() };
+    return fetch('/status', opts)
       .then(function (r) {
         if (r.status === 401) throw new Error('unauthorized');
         return r.json();
       })
       .then(render)
+      .then(function (data) {
+        scheduleNext(data && data.awaiting_qr ? 1500 : 4000);
+      })
       .catch(function (err) {
         document.body.classList.add('stale');
         $('footer').textContent = err && err.message === 'unauthorized'
           ? 'missing or invalid token — open the dashboard URL printed when the bridge started'
           : 'could not reach /status — the bridge may be down';
+        scheduleNext(4000);
       });
   }
 
+  var timer = null;
+  function scheduleNext(ms) {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(poll, ms);
+  }
+
   poll();
-  setInterval(poll, 4000);
 })();
 </script>
 </body>

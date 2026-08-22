@@ -231,6 +231,35 @@ check('GET /messages works', () => {
 const badRes = await fetch(base + '/messages')
 check('GET /messages without chat_jid returns 400', () => assert.equal(badRes.status, 400))
 
+// ---------------------------------------------------------------- 2b. linking (disclaimer + QR)
+const qrBeforeAcceptRes = await fetch(base + '/qr.svg')
+check('GET /qr.svg is refused before the disclaimer is accepted', () => {
+  assert.equal(qrBeforeAcceptRes.status, 403)
+})
+
+const acceptRes = await fetch(base + '/disclaimer/accept', { method: 'POST' })
+check('POST /disclaimer/accept works', () => assert.equal(acceptRes.status, 200))
+
+const statusAfterAccept = await j('/status')
+check('GET /status reflects the accepted disclaimer', () => {
+  assert.equal(statusAfterAccept.disclaimer_accepted, true)
+})
+
+socketMod.state.qr = '2@some-baileys-linking-payload=='
+socketMod.state.qrVersion = 1
+const qrRes = await fetch(base + '/qr.svg')
+const qrBody = await qrRes.text()
+check('GET /qr.svg renders an SVG once a QR is pending', () => {
+  assert.equal(qrRes.status, 200)
+  assert.match(qrRes.headers.get('content-type'), /image\/svg\+xml/)
+  assert.match(qrBody, /<svg/)
+  assert.ok(!qrBody.includes(socketMod.state.qr), 'the raw QR payload must not leak into the SVG')
+})
+socketMod.state.qr = null
+
+const clientsRes = await j('/clients')
+check('GET /clients returns an array', () => assert.ok(Array.isArray(clientsRes.clients)))
+
 // ---------------------------------------------------------------- 3. MCP over stdio
 const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
 const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js')
